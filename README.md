@@ -25,13 +25,15 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 
 ## Screenshots
 
-<!-- Place screenshots in docs/screenshots/ and uncomment the lines below. -->
-<!-- Suggested shots: dashboard overview, monthly data entry view, net worth chart. -->
-<!-- ![Dashboard](docs/screenshots/dashboard.png) -->
-<!-- ![Monthly Entry](docs/screenshots/monthly_entry.png) -->
-<!-- ![Net Worth Chart](docs/screenshots/networth_chart.png) -->
+![Financial Dashboard](docs/hero.png)
 
-*Screenshots coming soon.*
+![Financial Dashboard (dark mode)](docs/hero_dark.png)
+
+![Monthly Data Entry](docs/monthly_update.png)
+
+![Reports — Portfolio Allocation & Asset Drift](docs/charts.png)
+
+![Projections — Path to FI](docs/projections.png)
 
 To see the app populated with realistic demo data (~$120k–$212k net worth trajectory over 24 months), run the seed script after setup:
 
