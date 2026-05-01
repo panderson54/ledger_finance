@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Visualizations{% endblock %}
+
+{% block content %}
+<div class="row align-items-center mb-4">
+    <div class="col">
+        <h1 class="mb-0">Visualizations</h1>
+        <p class="text-muted mb-0">Charts and trends across your financial history</p>
+    </div>
+</div>
+
+<!-- #55 Rolling 12-Month Save Rate -->
+<div class="card mb-4">
+    <div class="card-header fw-semibold">Save Rate — Monthly &amp; 12-Month Rolling Average</div>
+    <div class="card-body">
+        <div id="saveRateChart" style="height:320px;"></div>
+    </div>
+</div>
+
+<!-- #56 Allocation Drift Over Time -->
+<div class="card mb-4">
+    <div class="card-header fw-semibold">Asset Allocation Over Time</div>
+    <div class="card-body">
+        <div id="allocationHistoryChart" style="height:360px;"></div>
+        <div class="text-muted small mt-2" id="allocationHistoryNote"></div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function isDark() { return document.documentElement.getAttribute('data-bs-theme') === 'dark'; }
+function axisColor() { return isDark() ? '#a1a1aa' : '#444'; }
+function gridColor() { return isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'; }
+
+// ─── Save Rate ────────────────────────────────────────────────────────────────
+let _saveRateData = null;
+
+function renderSaveRateChart() {
+    if (!_saveRateData) return;
+    const data = _saveRateData;
+    const ac = axisColor();
+    const gc = gridColor();
+    Plotly.react('saveRateChart', [
+        {
+            x: data.months, y: data.save_rate,
+            name: 'Monthly Save Rate', type: 'bar',
+            marker: {color: 'rgba(13,110,253,0.35)'},
+        },
+        {
+            x: data.months, y: data.rolling_12,
+            name: '12-Month Rolling Avg', type: 'scatter', mode: 'lines+markers',
+            line: {color: '#0d6efd', width: 2}, marker: {size: 4},
+        },
+    ], {
+        shapes: [{
+            type: 'line', xref: 'paper', yref: 'y',
+            x0: 0, x1: 1, y0: data.target, y1: data.target,
+            line: {color: '#198754', width: 1.5, dash: 'dash'},
+        }],
+        annotations: [{
+            xref: 'paper', yref: 'y', x: 1, y: data.target,
+            text: `Target ${data.target}%`,
+            showarrow: false, font: {size: 11, color: '#198754'},
+            xanchor: 'right', yanchor: 'bottom',
+        }],
+        yaxis: {title: 'Save Rate (%)', ticksuffix: '%', color: ac, gridcolor: gc},
+        xaxis: {color: ac, showgrid: false},
+        font: {color: ac},
+        legend: {orientation: 'h', y: -0.18},
+        margin: {l: 60, r: 20, t: 10, b: 50},
+        hovermode: 'x unified',
+        plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+    }, {responsive: true, displayModeBar: false});
+}
+
+fetch('/api/save-rate-history')
+    .then(r => r.json())
+    .then(data => { _saveRateData = data; renderSaveRateChart(); });
+
+// ─── Allocation History ───────────────────────────────────────────────────────
+let _allocHistData = null;
+
+function renderAllocHistoryChart() {
+    if (!_allocHistData) return;
+    const data = _allocHistData;
+    const ac = axisColor();
+    const gc = gridColor();
+    const COLORS = {
+        'Cash': '#6c757d', 'Investments': '#0d6efd',
+        'Retirement': '#198754', 'Real Estate': '#fd7e14', 'Liabilities': '#dc3545',
+    };
+    Plotly.react('allocationHistoryChart',
+        Object.keys(data.by_category).map(cat => ({
+            x: data.months, y: data.by_category[cat],
+            name: cat, type: 'bar',
+            marker: {color: COLORS[cat] || '#adb5bd'},
+        })),
+        {
+            barmode: 'relative',
+            yaxis: {title: 'Balance ($)', tickformat: '$.3s', color: ac, gridcolor: gc},
+            xaxis: {color: ac, showgrid: false},
+            font: {color: ac},
+            legend: {orientation: 'h', y: -0.18},
+            margin: {l: 70, r: 20, t: 10, b: 50},
+            hovermode: 'x unified',
+            plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+        },
+        {responsive: true, displayModeBar: false}
+    );
+}
+
+fetch('/api/allocation-history')
+    .then(r => r.json())
+    .then(data => {
+        if (!data.months || !data.months.length) {
+            document.getElementById('allocationHistoryNote').textContent = 'No snapshot data available yet.';
+            return;
+        }
+        _allocHistData = data;
+        renderAllocHistoryChart();
+        if (data.note) document.getElementById('allocationHistoryNote').textContent = data.note;
+    });
+
+new MutationObserver(() => {
+    renderSaveRateChart();
+    renderAllocHistoryChart();
+}).observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
+</script>
+{% endblock %}

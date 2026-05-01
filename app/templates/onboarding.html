@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+
+{% block title %}Get Started — Ledger{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+
+    <h1 class="mb-4">Get Started</h1>
+
+    {# Progress indicator #}
+    <div class="d-flex align-items-center mb-4 gap-2" id="wizardProgress">
+      <span class="badge rounded-pill bg-primary fs-6 px-3 py-2" id="pip-1">1</span>
+      <div class="flex-grow-1 border-top border-2"></div>
+      <span class="badge rounded-pill bg-secondary fs-6 px-3 py-2" id="pip-2">2</span>
+      <div class="flex-grow-1 border-top border-2"></div>
+      <span class="badge rounded-pill bg-secondary fs-6 px-3 py-2" id="pip-3">3</span>
+      <div class="flex-grow-1 border-top border-2"></div>
+      <span class="badge rounded-pill bg-secondary fs-6 px-3 py-2" id="pip-4">4</span>
+    </div>
+
+    {# ── Step 1: Introduction ── #}
+    <div class="wizard-step" id="step-1">
+      <h2>Welcome to Ledger</h2>
+      <p class="lead text-muted mb-4">How would you like to get started?</p>
+
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <div class="card h-100 border-primary" style="cursor:pointer" onclick="goToStep(2)">
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title text-primary">Set up manually</h5>
+              <p class="card-text flex-grow-1">Add your accounts one by one and enter your first month's balances. Good for new users starting fresh.</p>
+              <button class="btn btn-primary mt-2" type="button" onclick="event.stopPropagation();goToStep(2)">Get Started &rarr;</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card h-100 border-success" style="cursor:pointer"
+               onclick="window.location='{{ url_for('main.import_data') }}?from=onboarding'">
+            <div class="card-body d-flex flex-column">
+              <h5 class="card-title text-success">Restore from export</h5>
+              <p class="card-text flex-grow-1">Have a Ledger export CSV from another instance? Import it to restore all your accounts and history in one step.</p>
+              <a href="{{ url_for('main.import_data') }}?from=onboarding"
+                 class="btn btn-success mt-2" onclick="event.stopPropagation()">Import Export File &rarr;</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="text-muted small">Your net worth = total assets − total liabilities. You can always add or edit accounts later.</p>
+    </div>
+
+    {# ── Step 2: Add Accounts ── #}
+    <div class="wizard-step d-none" id="step-2">
+      <h2>Add Your Accounts</h2>
+      <p class="text-muted mb-3">Add each account below. Enter an opening balance if you want to start tracking from today.</p>
+
+      {# Running list of added accounts #}
+      <div id="accountList"></div>
+
+      {# Add account mini-form #}
+      <div class="card mb-3">
+        <div class="card-header fw-semibold">New Account</div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Account Name <span class="text-danger">*</span></label>
+              <input type="text" id="wiz_name" class="form-control" placeholder="e.g. Vanguard 401k">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Institution</label>
+              <input type="text" id="wiz_institution" class="form-control" placeholder="e.g. Fidelity">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+              <select id="wiz_category" class="form-select">
+                <option value="">— select —</option>
+                {% for cat in categories %}
+                <option value="{{ cat }}">{{ cat.replace('_',' ').title() }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Account Type <span class="text-danger">*</span></label>
+              <select id="wiz_account_type" class="form-select">
+                <option value="asset">Asset</option>
+                <option value="liability">Liability</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Tax Status</label>
+              <select id="wiz_tax_status" class="form-select">
+                <option value="">—</option>
+                <option value="taxable">Taxable</option>
+                <option value="tax_deferred">Tax-Deferred</option>
+                <option value="tax_free">Tax-Free (Roth/HSA)</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Opening Balance</label>
+              <div class="input-group">
+                <span class="input-group-text">$</span>
+                <input type="number" step="0.01" min="0" id="wiz_opening_balance" class="form-control" placeholder="0.00">
+              </div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Opening Month</label>
+              <input type="month" id="wiz_opening_month" class="form-control" value="{{ current_month }}">
+            </div>
+            <div class="col-12" id="wizAddErrorWrap" style="display:none">
+              <div class="alert alert-danger py-2 mb-0" id="wizAddErrorMsg"></div>
+            </div>
+            <div class="col-12">
+              <button type="button" class="btn btn-outline-primary" onclick="addAccountToList()">+ Add Account</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between">
+        <button class="btn btn-outline-secondary" onclick="goToStep(1)">&larr; Back</button>
+        <button class="btn btn-primary" id="step2NextBtn" onclick="goToStep(3)" disabled>
+          Review <span id="step2Count"></span> &rarr;
+        </button>
+      </div>
+    </div>
+
+    {# ── Step 3: Review ── #}
+    <div class="wizard-step d-none" id="step-3">
+      <h2>Review Your Accounts</h2>
+      <p class="text-muted mb-3">These accounts will be created when you click Finish Setup.</p>
+      <div id="reviewList" class="mb-4"></div>
+      <div id="commitErrorWrap" style="display:none" class="mb-3">
+        <div class="alert alert-danger" id="commitErrorMsg"></div>
+      </div>
+      <div class="d-flex justify-content-between">
+        <button class="btn btn-outline-secondary" onclick="goToStep(2)">&larr; Back</button>
+        <button class="btn btn-success" id="commitBtn" onclick="commitAccounts()">Finish Setup</button>
+      </div>
+    </div>
+
+    {# ── Step 4: Done ── #}
+    <div class="wizard-step d-none" id="step-4">
+      <div class="text-center py-5">
+        <div class="display-1 text-success mb-3">&#10003;</div>
+        <h2>You're all set!</h2>
+        <p class="lead text-muted" id="doneMsg">Your accounts have been created.</p>
+        <p class="text-muted">Next: record your first monthly balances to see your net worth over time.</p>
+        <div class="d-flex gap-3 justify-content-center mt-4">
+          <a href="{{ url_for('main.monthly_update') }}" class="btn btn-primary btn-lg">Enter First Month's Data</a>
+          <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary btn-lg">Go to Dashboard</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const LIABILITY_CATS = new Set(['mortgage', 'loan', 'credit_card']);
+const TAX_FREE_CATS  = new Set(['roth ira', 'hsa', '529']);
+const TAX_DEF_CATS   = new Set(['401k', 'ira', 'retirement']);
+const NON_LIQUID     = new Set(['real estate', 'real_estate', 'vehicle', 'retirement', '401k', 'ira', 'roth ira', 'hsa', '529']);
+
+let pendingAccounts = [];
+
+// ── Category auto-fill ──
+document.getElementById('wiz_category').addEventListener('change', function () {
+    const cat    = this.value.toLowerCase().replace(/_/g, ' ');
+    const typeEl = document.getElementById('wiz_account_type');
+    const taxEl  = document.getElementById('wiz_tax_status');
+    if (!cat) return;
+    typeEl.value = LIABILITY_CATS.has(cat) ? 'liability' : 'asset';
+    if (TAX_FREE_CATS.has(cat))        taxEl.value = 'tax_free';
+    else if (TAX_DEF_CATS.has(cat))    taxEl.value = 'tax_deferred';
+    else if (!LIABILITY_CATS.has(cat)) taxEl.value = 'taxable';
+    else                               taxEl.value = '';
+});
+
+// ── Step navigation ──
+function goToStep(n) {
+    document.querySelectorAll('.wizard-step').forEach(el => el.classList.add('d-none'));
+    document.getElementById('step-' + n).classList.remove('d-none');
+    for (let i = 1; i <= 4; i++) {
+        document.getElementById('pip-' + i).className =
+            'badge rounded-pill fs-6 px-3 py-2 ' + (i <= n ? 'bg-primary' : 'bg-secondary');
+    }
+    if (n === 3) renderReview();
+}
+
+// ── Add account ──
+function addAccountToList() {
+    const name  = document.getElementById('wiz_name').value.trim();
+    const cat   = document.getElementById('wiz_category').value;
+    const type  = document.getElementById('wiz_account_type').value;
+    const tax   = document.getElementById('wiz_tax_status').value;
+    const inst  = document.getElementById('wiz_institution').value.trim();
+    const bal   = document.getElementById('wiz_opening_balance').value.trim();
+    const month = document.getElementById('wiz_opening_month').value;
+
+    const errors = [];
+    if (!name)     errors.push('Account name is required.');
+    if (!cat)      errors.push('Category is required.');
+    if (!['asset','liability'].includes(type)) errors.push('Account type is required.');
+    if (pendingAccounts.some(a => a.name.toLowerCase() === name.toLowerCase()))
+        errors.push('An account with that name is already in your list.');
+
+    const errWrap = document.getElementById('wizAddErrorWrap');
+    const errMsg  = document.getElementById('wizAddErrorMsg');
+    if (errors.length) {
+        errMsg.textContent = errors.join(' ');
+        errWrap.style.display = '';
+        return;
+    }
+    errWrap.style.display = 'none';
+
+    pendingAccounts.push({
+        name, category: cat, account_type: type, tax_status: tax,
+        institution: inst, opening_balance: bal, opening_month: month,
+        is_active: 'on', include_in_networth: 'on', is_liquid: 'on'
+    });
+    renderAccountList();
+    resetAddForm();
+}
+
+function removeAccount(i) {
+    pendingAccounts.splice(i, 1);
+    renderAccountList();
+}
+
+function renderAccountList() {
+    const el  = document.getElementById('accountList');
+    const btn = document.getElementById('step2NextBtn');
+    const cnt = document.getElementById('step2Count');
+    if (!pendingAccounts.length) {
+        el.innerHTML = '';
+        btn.disabled = true;
+        cnt.textContent = '';
+        return;
+    }
+    btn.disabled = false;
+    cnt.textContent = '(' + pendingAccounts.length + ')';
+    el.innerHTML = '<ul class="list-group mb-3">' +
+        pendingAccounts.map((a, i) =>
+            '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+            '<div>' +
+            '<span class="fw-semibold">' + esc(a.name) + '</span>' +
+            ' <span class="badge ' + (a.account_type === 'asset' ? 'bg-success' : 'bg-danger') + ' ms-1">' +
+            a.account_type.toUpperCase() + '</span>' +
+            ' <span class="text-muted small">' + esc(a.category.replace(/_/g, ' ')) + '</span>' +
+            (a.opening_balance ? ' <span class="text-muted small">&middot; $' + parseFloat(a.opening_balance).toLocaleString() + '</span>' : '') +
+            '</div>' +
+            '<button class="btn btn-sm btn-outline-danger" onclick="removeAccount(' + i + ')">Remove</button>' +
+            '</li>'
+        ).join('') + '</ul>';
+}
+
+function resetAddForm() {
+    ['wiz_name', 'wiz_institution', 'wiz_opening_balance'].forEach(id =>
+        document.getElementById(id).value = '');
+    document.getElementById('wiz_category').value = '';
+    document.getElementById('wiz_account_type').value = 'asset';
+    document.getElementById('wiz_tax_status').value = '';
+    document.getElementById('wiz_name').focus();
+}
+
+function renderReview() {
+    document.getElementById('reviewList').innerHTML =
+        '<ul class="list-group">' +
+        pendingAccounts.map(a =>
+            '<li class="list-group-item">' +
+            '<div class="d-flex justify-content-between">' +
+            '<span class="fw-semibold">' + esc(a.name) + '</span>' +
+            '<span class="badge ' + (a.account_type === 'asset' ? 'bg-success' : 'bg-danger') + '">' +
+            a.account_type.toUpperCase() + '</span>' +
+            '</div>' +
+            '<span class="text-muted small">' + esc(a.category.replace(/_/g, ' ')) +
+            (a.institution ? ' &middot; ' + esc(a.institution) : '') + '</span>' +
+            (a.opening_balance
+                ? '<br><span class="text-muted small">Opening: $' + parseFloat(a.opening_balance).toLocaleString() + ' (' + a.opening_month + ')</span>'
+                : '') +
+            '</li>'
+        ).join('') + '</ul>';
+}
+
+// ── Commit to server ──
+function commitAccounts() {
+    const btn = document.getElementById('commitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Creating accounts…';
+    document.getElementById('commitErrorWrap').style.display = 'none';
+
+    fetch('/api/accounts/batch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({accounts: pendingAccounts})
+    })
+    .then(r => r.json().then(data => ({ok: r.ok, data})))
+    .then(({ok, data}) => {
+        if (!ok) {
+            const msgs = data.errors
+                ? Object.values(data.errors).flat().join(' ')
+                : (data.error || 'Unknown error.');
+            document.getElementById('commitErrorMsg').textContent = 'Could not create accounts: ' + msgs;
+            document.getElementById('commitErrorWrap').style.display = '';
+            btn.disabled = false;
+            btn.textContent = 'Finish Setup';
+            return;
+        }
+        const n = data.created.length;
+        document.getElementById('doneMsg').textContent =
+            n + ' account' + (n === 1 ? '' : 's') + ' created successfully.';
+        goToStep(4);
+    })
+    .catch(() => {
+        document.getElementById('commitErrorMsg').textContent = 'Network error. Please try again.';
+        document.getElementById('commitErrorWrap').style.display = '';
+        btn.disabled = false;
+        btn.textContent = 'Finish Setup';
+    });
+}
+
+function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+{% endblock %}

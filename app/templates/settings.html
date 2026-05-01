@@ -1,0 +1,448 @@
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>Settings</h1>
+        <p class="text-muted">Configure application preferences and integrations.</p>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+
+        <!-- Recurring Entries card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Recurring Expenses &amp; Income</span>
+                <button class="btn btn-sm btn-primary" onclick="openAddRecurring()">+ Add Entry</button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    These entries are automatically added to every new month when you initialize it.
+                    Useful for fixed items like mortgage payments, utilities, and regular paychecks.
+                </p>
+
+                <div id="recurring-alert" class="alert d-none mb-3" role="alert"></div>
+
+                <div id="recurring-loading" class="text-muted small">Loading…</div>
+                <table class="table table-sm mb-0 d-none" id="recurring-table">
+                    <thead>
+                        <tr>
+                            <th>Account / Source</th>
+                            <th>Type</th>
+                            <th>Amount</th>
+                            <th>Notes</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="recurring-rows"></tbody>
+                </table>
+                <div id="recurring-empty" class="text-muted small d-none">
+                    No recurring entries yet. Click <strong>+ Add Entry</strong> to get started.
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Classification card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">AI Ticker Classification</span>
+                <span class="badge {% if classification_enabled %}bg-success{% else %}bg-secondary{% endif %}">
+                    {{ 'Enabled' if classification_enabled else 'Disabled' }}
+                </span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    When enabled, typing a ticker symbol in the Holdings form automatically classifies it
+                    by asset class and cap size using the Claude AI API. Each <em>new</em> ticker incurs
+                    a small API cost; results are cached so the same ticker is only looked up once.
+                </p>
+
+                <div id="settings-alert" class="alert d-none mb-3" role="alert"></div>
+
+                <div class="mb-3">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="classificationToggle"
+                               {% if classification_enabled %}checked{% endif %}>
+                        <label class="form-check-label" for="classificationToggle">
+                            Enable AI classification
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="anthropicApiKey" class="form-label fw-medium">
+                        Anthropic API Key
+                    </label>
+                    {% if api_key_set %}
+                    <div class="mb-1">
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">
+                            ✓ API key configured
+                        </span>
+                        <span class="text-muted small ms-1">Enter a new value below to replace it.</span>
+                    </div>
+                    {% endif %}
+                    <input type="password" class="form-control font-monospace" id="anthropicApiKey"
+                           placeholder="sk-ant-api03-…"
+                           autocomplete="off">
+                    <div class="form-text">
+                        Leave blank to keep the existing key.
+                        Get your key at
+                        <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+                            console.anthropic.com
+                        </a>.
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" id="saveSettingsBtn" type="button">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+
+        <!-- Cached classifications card -->
+        <div class="card">
+            <div class="card-header fw-semibold">Cached Classifications</div>
+            <div class="card-body p-0">
+                <div id="cache-loading" class="p-3 text-muted small">Loading…</div>
+                <table class="table table-sm mb-0 d-none" id="cache-table">
+                    <thead>
+                        <tr>
+                            <th>Ticker</th>
+                            <th>Asset Class</th>
+                            <th>Cap</th>
+                            <th>Source</th>
+                            <th>Classified</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="cache-rows"></tbody>
+                </table>
+                <div id="cache-empty" class="p-3 text-muted small d-none">
+                    No tickers classified yet. They appear here after the first lookup.
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Recurring Entry Modal -->
+<div class="modal fade" id="recurringModal" tabindex="-1" aria-labelledby="recurringModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="recurringModalLabel">Add Recurring Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="recurringId">
+                <div id="recurringModalError" class="alert alert-danger d-none mb-3"></div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Type</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="recurringType"
+                                   id="recurringTypeExpense" value="expense" checked>
+                            <label class="form-check-label" for="recurringTypeExpense">Expense</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="recurringType"
+                                   id="recurringTypeIncome" value="income">
+                            <label class="form-check-label" for="recurringTypeIncome">Income</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="recurringName" class="form-label fw-medium">Account / Source</label>
+                    <input type="text" class="form-control" id="recurringName"
+                           placeholder="e.g. Mortgage, Electric Bill, Paycheck">
+                </div>
+
+                <div class="mb-3">
+                    <label for="recurringAmount" class="form-label fw-medium">Amount ($)</label>
+                    <input type="number" class="form-control" id="recurringAmount"
+                           placeholder="0.00" min="0.01" step="0.01">
+                </div>
+
+                <div class="mb-3">
+                    <label for="recurringNotes" class="form-label fw-medium">Notes <span class="text-muted fw-normal">(optional)</span></label>
+                    <input type="text" class="form-control" id="recurringNotes"
+                           placeholder="e.g. Chase checking, Employer name">
+                </div>
+
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="recurringActive" checked>
+                    <label class="form-check-label" for="recurringActive">Active (include in new months)</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveRecurringBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const saveBtn  = document.getElementById('saveSettingsBtn');
+const alertEl  = document.getElementById('settings-alert');
+
+function showAlert(msg, type) {
+    alertEl.className = `alert alert-${type} mb-3`;
+    alertEl.textContent = msg;
+    alertEl.classList.remove('d-none');
+    setTimeout(() => alertEl.classList.add('d-none'), 4000);
+}
+
+saveBtn.addEventListener('click', async () => {
+    const enabled = document.getElementById('classificationToggle').checked;
+    const key     = document.getElementById('anthropicApiKey').value.trim();
+    const body    = { classification_enabled: enabled };
+    if (key) body.anthropic_api_key = key;
+
+    saveBtn.disabled = true;
+    try {
+        const r = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.success) {
+            showAlert('Settings saved.', 'success');
+            document.getElementById('anthropicApiKey').value = '';
+            // Update badge
+            const badge = document.querySelector('.card-header .badge');
+            if (enabled) {
+                badge.className = 'badge bg-success';
+                badge.textContent = 'Enabled';
+            } else {
+                badge.className = 'badge bg-secondary';
+                badge.textContent = 'Disabled';
+            }
+            // Refresh cache table if key was set
+            if (key) loadCache();
+        } else {
+            showAlert('Save failed.', 'danger');
+        }
+    } catch (e) {
+        showAlert('Network error: ' + e.message, 'danger');
+    } finally {
+        saveBtn.disabled = false;
+    }
+});
+
+async function loadCache() {
+    const loading = document.getElementById('cache-loading');
+    const table   = document.getElementById('cache-table');
+    const empty   = document.getElementById('cache-empty');
+    const tbody   = document.getElementById('cache-rows');
+
+    try {
+        const r = await fetch('/api/classifications');
+        const rows = await r.json();
+        loading.classList.add('d-none');
+        if (!rows.length) {
+            empty.classList.remove('d-none');
+            return;
+        }
+        tbody.innerHTML = rows.map(c => `
+            <tr>
+                <td class="font-monospace fw-semibold">${c.ticker}</td>
+                <td>${c.asset_class}</td>
+                <td>${c.market_cap_tilt || '—'}</td>
+                <td><span class="badge bg-light text-dark border">${c.source}</span></td>
+                <td class="text-muted small">${c.classified_at ? c.classified_at.slice(0,10) : '—'}</td>
+                <td>
+                    <button class="btn btn-xs btn-outline-secondary py-0 px-1"
+                            onclick="reclassify('${c.ticker}')">↻</button>
+                </td>
+            </tr>
+        `).join('');
+        table.classList.remove('d-none');
+    } catch {
+        loading.textContent = 'Could not load cache.';
+    }
+}
+
+async function reclassify(ticker) {
+    if (!confirm(`Re-classify ${ticker} via Claude API?`)) return;
+    const r = await fetch(`/api/classify/${ticker}?force=1`);
+    const d = await r.json();
+    if (d.manual_required) {
+        alert('Classification failed: ' + d.error);
+    } else {
+        loadCache();
+    }
+}
+
+loadCache();
+
+// ---------------------------------------------------------------------------
+// Recurring entries
+// ---------------------------------------------------------------------------
+
+const recurringAlert = document.getElementById('recurring-alert');
+let recurringCache = [];
+
+function showRecurringAlert(msg, type) {
+    recurringAlert.className = `alert alert-${type} mb-3`;
+    recurringAlert.textContent = msg;
+    recurringAlert.classList.remove('d-none');
+    setTimeout(() => recurringAlert.classList.add('d-none'), 4000);
+}
+
+async function loadRecurring() {
+    const loading = document.getElementById('recurring-loading');
+    const table   = document.getElementById('recurring-table');
+    const empty   = document.getElementById('recurring-empty');
+    const tbody   = document.getElementById('recurring-rows');
+
+    try {
+        const r = await fetch('/api/recurring-entries');
+        recurringCache = await r.json();
+        loading.classList.add('d-none');
+        if (!recurringCache.length) {
+            empty.classList.remove('d-none');
+            table.classList.add('d-none');
+            return;
+        }
+        empty.classList.add('d-none');
+        tbody.innerHTML = recurringCache.map(row => `
+            <tr>
+                <td class="fw-medium">${escHtml(row.account_name)}</td>
+                <td>
+                    <span class="badge ${row.entry_type === 'income' ? 'bg-success' : 'bg-warning text-dark'}">
+                        ${row.entry_type}
+                    </span>
+                </td>
+                <td>$${row.amount.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                <td class="text-muted small">${escHtml(row.notes) || '—'}</td>
+                <td>
+                    <span class="badge ${row.is_active
+                        ? 'bg-success-subtle text-success border border-success-subtle'
+                        : 'bg-secondary-subtle text-secondary border'}">
+                        ${row.is_active ? 'Active' : 'Paused'}
+                    </span>
+                </td>
+                <td class="text-end text-nowrap">
+                    <button class="btn btn-sm btn-outline-secondary me-1"
+                            onclick="editRecurring(${row.id})">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="deleteRecurring(${row.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+        table.classList.remove('d-none');
+    } catch {
+        loading.textContent = 'Could not load recurring entries.';
+    }
+}
+
+function escHtml(str) {
+    const d = document.createElement('div');
+    d.appendChild(document.createTextNode(str || ''));
+    return d.innerHTML;
+}
+
+function openAddRecurring() {
+    document.getElementById('recurringModalLabel').textContent = 'Add Recurring Entry';
+    document.getElementById('recurringId').value = '';
+    document.getElementById('recurringName').value = '';
+    document.getElementById('recurringAmount').value = '';
+    document.getElementById('recurringNotes').value = '';
+    document.getElementById('recurringActive').checked = true;
+    document.querySelectorAll('[name="recurringType"]').forEach(r => r.checked = r.value === 'expense');
+    document.getElementById('recurringModalError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('recurringModal')).show();
+}
+
+function editRecurring(id) {
+    const row = recurringCache.find(r => r.id === id);
+    if (!row) return;
+    document.getElementById('recurringModalLabel').textContent = 'Edit Recurring Entry';
+    document.getElementById('recurringId').value = row.id;
+    document.getElementById('recurringName').value = row.account_name;
+    document.getElementById('recurringAmount').value = row.amount;
+    document.getElementById('recurringNotes').value = row.notes;
+    document.getElementById('recurringActive').checked = row.is_active;
+    document.querySelectorAll('[name="recurringType"]').forEach(r => r.checked = r.value === row.entry_type);
+    document.getElementById('recurringModalError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('recurringModal')).show();
+}
+
+async function deleteRecurring(id) {
+    const row = recurringCache.find(r => r.id === id);
+    if (!confirm(`Delete "${row ? row.account_name : 'this entry'}"? This won't affect months already created.`)) return;
+    try {
+        const res = await fetch(`/api/recurring-entries/${id}`, { method: 'DELETE' });
+        const d = await res.json();
+        if (d.success) {
+            showRecurringAlert('Entry deleted.', 'success');
+            loadRecurring();
+        } else {
+            showRecurringAlert(d.error || 'Delete failed.', 'danger');
+        }
+    } catch (e) {
+        showRecurringAlert('Network error: ' + e.message, 'danger');
+    }
+}
+
+document.getElementById('saveRecurringBtn').addEventListener('click', async () => {
+    const id     = document.getElementById('recurringId').value;
+    const name   = document.getElementById('recurringName').value.trim();
+    const amount = document.getElementById('recurringAmount').value.trim();
+    const type   = document.querySelector('[name="recurringType"]:checked')?.value;
+    const notes  = document.getElementById('recurringNotes').value.trim();
+    const active = document.getElementById('recurringActive').checked;
+    const errEl  = document.getElementById('recurringModalError');
+
+    if (!name || !amount || !type) {
+        errEl.textContent = 'Account name, amount, and type are required.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+    if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+        errEl.textContent = 'Amount must be a positive number.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+    errEl.classList.add('d-none');
+
+    const body = { account_name: name, amount: parseFloat(amount), entry_type: type, notes, is_active: active };
+    const url    = id ? `/api/recurring-entries/${id}` : '/api/recurring-entries';
+    const method = id ? 'PUT' : 'POST';
+
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (res.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('recurringModal')).hide();
+            showRecurringAlert(id ? 'Entry updated.' : 'Entry added.', 'success');
+            loadRecurring();
+        } else {
+            errEl.textContent = d.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error: ' + e.message;
+        errEl.classList.remove('d-none');
+    }
+});
+
+loadRecurring();
+</script>
+{% endblock %}

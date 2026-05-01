@@ -1,0 +1,1451 @@
+{% extends "base.html" %}
+
+{% block title %}{{ label }} — Monthly Update{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Account grid selector ── */
+.section-header-label {
+  font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: #6c757d;
+  margin-top: 10px; margin-bottom: 5px;
+}
+.acct-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 11px; border-radius: 20px; cursor: pointer;
+  border: 1.5px solid #dee2e6; background: #fff;
+  font-size: .85rem; font-weight: 500; transition: border-color .12s, background .12s;
+  white-space: nowrap; user-select: none;
+}
+.acct-pill:hover:not(.done):not(.active) { border-color: #0d6efd; color: #0d6efd; }
+.acct-pill.done  { background: #f0fdf4; border-color: #86efac; color: #166534; cursor: default; opacity: .8; }
+.acct-pill.active { background: #0d6efd; border-color: #0d6efd; color: #fff; }
+.acct-pill.active .pill-inst { color: rgba(255,255,255,.7); }
+.pill-inst { font-size: .75rem; color: #6c757d; font-weight: 400; }
+.pill-check { font-size: .8rem; }
+.balance-row {
+  display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 12px; background: #fff;
+  border: 1.5px solid #0d6efd; border-radius: 10px;
+  animation: slideDown .13s ease;
+}
+.balance-row.visible { display: flex; }
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.brow-meta { min-width: 110px; }
+.brow-name { font-weight: 600; font-size: .85rem; }
+.brow-inst { font-size: .73rem; color: #6c757d; }
+.brow-hint { white-space: nowrap; }
+
+/* #47 Inline balance editing */
+.balance-cell { cursor: pointer; user-select: none; }
+.balance-cell:hover .balance-display::after { content: " ✎"; color: #aaa; font-size: .75em; }
+.inline-balance-input { width: 130px !important; display: inline-block !important;
+    padding: .2rem .4rem; font-size: .875rem; }
+
+/* #54 Sticky metrics banner */
+#metricsBanner {
+    position: sticky; top: 0; z-index: 999;
+    background: var(--bs-body-bg, #fff);
+    border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+    padding: .4rem .75rem;
+    display: flex; align-items: center; gap: 1.25rem;
+    font-size: .8rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Header -->
+<div class="row align-items-center mb-4">
+    <div class="col">
+        <a href="/monthly-update" class="text-muted text-decoration-none">&larr; All Months</a>
+        <h1 class="mt-1 mb-0">{{ label }}</h1>
+        <a href="{% if prev_month %}/monthly-update/{{ prev_month }}{% else %}#{% endif %}"
+           id="prevMonthBtn" class="d-none {% if not prev_month %}disabled{% endif %}"></a>
+        <a href="{% if next_month %}/monthly-update/{{ next_month }}{% else %}#{% endif %}"
+           id="nextMonthBtn" class="d-none {% if not next_month %}disabled{% endif %}"></a>
+        <div class="mt-2" id="monthGridPicker" style="max-width:220px;">
+            <div class="d-flex align-items-center justify-content-between mb-1">
+                <button type="button" class="btn btn-sm btn-link p-0 text-muted" id="gridPrevYear">&#8249;</button>
+                <span id="gridYear" class="small fw-semibold"></span>
+                <button type="button" class="btn btn-sm btn-link p-0 text-muted" id="gridNextYear">&#8250;</button>
+            </div>
+            <div class="row g-1" id="gridMonths"></div>
+        </div>
+    </div>
+    <div class="col-auto d-flex gap-2">
+        <button class="btn btn-outline-secondary" id="autoCalcBtn">Auto-Calculate Metrics</button>
+        <button class="btn btn-outline-danger" onclick="deleteEntireMonth('{{ month_str }}')">Delete Month</button>
+    </div>
+</div>
+
+<!-- #54 Sticky live metrics banner -->
+<div id="metricsBanner">
+    <span>NW: <strong id="bannerNW">{% if metric and metric.net_worth is not none %}${{ "{:,.0f}".format(metric.net_worth) }}{% else %}—{% endif %}</strong></span>
+    <span>MoM: <strong id="bannerMoM">{% if metric and metric.monthly_change_pct is not none %}{{ "%+.1f"|format(metric.monthly_change_pct) }}%{% else %}—{% endif %}</strong></span>
+    <span>Save Rate: <strong id="bannerSaveRate">{% if metric and metric.save_rate is not none %}{{ "%.1f"|format(metric.save_rate) }}%{% else %}—{% endif %}</strong></span>
+    <span>Surplus: <strong id="bannerSurplus">{% if metric and metric.total_income is not none and metric.total_expenses is not none %}${{ "{:,.0f}".format(metric.total_income - metric.total_expenses) }}{% else %}—{% endif %}</strong></span>
+    <a href="#metricsCard" class="ms-auto text-muted text-decoration-none small">Details ▾</a>
+</div>
+
+<!-- Hidden month identifier for JS -->
+<input type="hidden" id="monthStr" data-month="{{ month_str }}">
+
+<!-- ===== Account Grid Selector (#27) ===== -->
+<div class="card mb-4" id="snapshotGridCard">
+    <div class="card-body pb-2">
+
+        {% for group in grouped_accounts %}
+        <div class="section-header-label">{{ group.label }}</div>
+        <div class="d-flex flex-wrap gap-2 mb-1">
+            {% for a in group.accounts %}
+            {% set is_done = a.id in snapshotted_ids %}
+            <span class="acct-pill {% if is_done %}done{% endif %}"
+                  id="pill-{{ a.id }}"
+                  {% if not is_done %}onclick="togglePill({{ a.id }})"{% endif %}
+                  data-account-id="{{ a.id }}"
+                  data-account-name="{{ a.name }}"
+                  data-institution="{{ a.institution or '' }}"
+                  data-last-balance="{{ last_balances.get(a.id, '') }}">
+                {% if is_done %}<span class="pill-check">✓</span>{% endif %}
+                {{ a.name }}
+                {% if a.institution %}
+                <span class="pill-inst">{{ a.institution }}</span>
+                {% endif %}
+            </span>
+            {% endfor %}
+        </div>
+        <!-- One balance-row per group, shown when a pill in that group is active -->
+        <div class="balance-row mb-2" id="brow-{{ loop.index }}">
+            <div class="brow-meta">
+                <div class="brow-name" id="brow-name-{{ loop.index }}"></div>
+                <div class="brow-inst" id="brow-inst-{{ loop.index }}"></div>
+            </div>
+            <input type="text" inputmode="decimal"
+                   class="form-control form-control-sm currency-input brow-input"
+                   id="brow-input-{{ loop.index }}" placeholder="0.00"
+                   style="width:140px">
+            <span class="brow-hint text-muted small" id="brow-hint-{{ loop.index }}"></span>
+            <button class="btn btn-primary btn-sm brow-save"
+                    data-group="{{ loop.index }}" onclick="savePill({{ loop.index }})">Save</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="cancelPill()">✕</button>
+        </div>
+        {% endfor %}
+
+        <!-- Progress footer -->
+        <div class="d-flex align-items-center gap-2 mt-3 pt-2 border-top">
+            <span class="text-muted small" id="gridProgressLabel"></span>
+            <div class="progress flex-grow-1" style="height:6px">
+                <div class="progress-bar bg-success" id="gridProgressBar" style="width:0%"></div>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" id="gridDoneBtn">Done</button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Card 1: Account Snapshots ===== -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Account Snapshots</h5>
+        <div class="d-flex gap-2">
+            {% if snapshots %}<button class="btn btn-sm btn-outline-secondary" id="collapseSnapshotsBtn">Collapse</button>{% endif %}
+            <button class="btn btn-sm btn-outline-secondary" id="toggleGridBtn">Hide Wizard</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        {% if snapshots %}
+        {% set ns = namespace(assets=0, liabilities=0) %}
+        <div class="table-responsive">
+        <table class="table table-hover mb-0" id="snapshotsTable">
+            <thead class="table-light" id="snapshotsTableHead">
+                <tr>
+                    <th>Account</th>
+                    <th>Type</th>
+                    <th class="text-end">Balance</th>
+                    <th class="d-none d-lg-table-cell" style="width:80px;"></th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for group in grouped_snapshots %}
+                <tr class="table-secondary snapshot-group-header">
+                    <td colspan="5" class="small fw-semibold text-uppercase text-muted py-1 px-3">
+                        {{ group.label }}
+                    </td>
+                </tr>
+                {% for s in group.snapshots %}
+                <tr id="snapshot-row-{{ s.id }}" class="snapshot-detail-row">
+                    <td>
+                        {% if s.account.display_color %}
+                        <span class="me-1" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ s.account.display_color }}"></span>
+                        {% endif %}
+                        {{ s.account.name }}
+                        {% if s.account.category in investment_cats %}
+                          {% set hv = holdings_values.get(s.account_id) %}
+                          {% if hv is not none and s.balance and s.balance != 0
+                                and ((hv - s.balance|float)|abs / s.balance|float|abs) > 0.01 %}
+                          <span class="text-warning ms-1"
+                                data-bs-toggle="tooltip"
+                                data-bs-placement="top"
+                                title="Holdings value ${{ '{:,.0f}'.format(hv) }} differs from snapshot ${{ '{:,.0f}'.format(s.balance) }} — consider updating holdings"
+                          >⚠</span>
+                          {% endif %}
+                        {% endif %}
+                        {% if s.account.institution %}<br><span class="text-muted small">{{ s.account.institution }}</span>{% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {{ 'bg-success' if s.account.account_type == 'asset' else 'bg-danger' }}">
+                            {{ s.account.account_type }}
+                        </span>
+                    </td>
+                    <td class="text-end balance-cell" data-snapshot-id="{{ s.id }}" data-last-balance="{{ last_balances.get(s.account_id, '') }}"><span class="balance-display">${{ "{:,.2f}".format(s.balance) }}</span></td>
+                    <td class="d-none d-lg-table-cell p-0 sparkline-cell" id="spark-{{ s.id }}" data-account-id="{{ s.account_id }}" style="width:80px;height:36px;vertical-align:middle;"></td>
+                    <td class="text-end">
+                        {% if s.updated_at %}<span class="text-muted small me-1 d-none d-md-inline" data-bs-toggle="tooltip" data-bs-placement="top" title="Last edited {{ s.updated_at | datefmt('%b %-d, %Y') }}">· edited</span>{% endif %}
+                        <button class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal"
+                                data-bs-target="#editSnapshotModal"
+                                data-snapshot-id="{{ s.id }}"
+                                data-account-name="{{ s.account.name }}"
+                                data-balance="{{ s.balance }}">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="deleteSnapshot({{ s.id }})">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                <tr class="table-light snapshot-category-total">
+                    <td colspan="2" class="text-end text-muted small fst-italic">{{ group.label }} Total</td>
+                    <td class="text-end text-muted small">${{ "{:,.0f}".format(group.total) }}</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+                {% if group.is_liability %}
+                {% set ns.liabilities = ns.liabilities + group.total %}
+                {% else %}
+                {% set ns.assets = ns.assets + group.total %}
+                {% endif %}
+                {% endfor %}
+                <tr class="table-dark fw-bold">
+                    <td colspan="2" class="text-end">Net Worth</td>
+                    <td class="text-end">${{ "{:,.0f}".format(ns.assets - ns.liabilities) }}</td>
+                    <td></td>
+                    <td></td>
+                </tr>
+            </tbody>
+        </table>
+        </div><!-- /table-responsive -->
+        {% else %}
+        <div class="p-4 text-center text-muted" id="snapshotsEmpty">
+            <p class="mb-0">No account snapshots for this month.</p>
+            {% if copy_source %}
+            <button class="btn btn-outline-secondary btn-sm mt-2" id="copyFromPrevBtn">
+                Copy balances from {{ copy_source_label }}
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ===== Card 2: Spending Entries ===== -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Income &amp; Expenses</h5>
+        <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addSpendingModal">
+            + Add Entry
+        </button>
+    </div>
+    <div class="card-body p-0">
+        {% if spending_entries %}
+        <div class="table-responsive">
+        <table class="table table-hover mb-0" id="spendingTable">
+            <thead class="table-light">
+                <tr>
+                    <th data-sort-type="text">Account / Source</th>
+                    <th data-sort-type="text">Type</th>
+                    <th class="text-end" data-sort-type="number">Amount</th>
+                    <th data-sort-type="text">Notes</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in spending_entries %}
+                <tr id="spending-row-{{ e.id }}">
+                    <td>{{ e.account_name }}</td>
+                    <td>
+                        <span class="badge {{ 'bg-success' if e.entry_type == 'income' else 'bg-warning text-dark' }}">
+                            {{ e.entry_type }}
+                        </span>
+                    </td>
+                    <td class="text-end">${{ "{:,.2f}".format(e.amount) }}</td>
+                    <td class="text-muted small">{{ e.notes or '' }}</td>
+                    <td class="text-end">
+                        {% if e.updated_at %}<span class="text-muted small me-1 d-none d-md-inline" data-bs-toggle="tooltip" data-bs-placement="top" title="Last edited {{ e.updated_at | datefmt('%b %-d, %Y') }}">· edited</span>{% endif %}
+                        <button class="btn btn-sm btn-outline-secondary"
+                                data-bs-toggle="modal"
+                                data-bs-target="#editSpendingModal"
+                                data-entry-id="{{ e.id }}"
+                                data-account-name="{{ e.account_name }}"
+                                data-amount="{{ e.amount }}"
+                                data-entry-type="{{ e.entry_type }}"
+                                data-notes="{{ e.notes or '' }}">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="deleteSpending({{ e.id }})">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div><!-- /table-responsive -->
+        {% else %}
+        <div class="p-4 text-center text-muted" id="spendingEmpty">
+            No income or expense entries for this month.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ===== Card 3: Calculated Metrics ===== -->
+<div class="card mb-4" id="metricsCard">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Calculated Metrics</h5>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" id="autoCalcBtnCard">Auto-Calculate</button>
+            <button class="btn btn-sm btn-outline-primary"
+                    data-bs-toggle="modal"
+                    data-bs-target="#editMetricsModal"
+                    {% if metric %}
+                    data-total-assets="{{ metric.total_assets or '' }}"
+                    data-total-liabilities="{{ metric.total_liabilities or '' }}"
+                    data-net-worth="{{ metric.net_worth or '' }}"
+                    data-net-worth-non-re="{{ metric.net_worth_non_re or '' }}"
+                    data-monthly-change-amount="{{ metric.monthly_change_amount or '' }}"
+                    data-monthly-change-pct="{{ metric.monthly_change_pct or '' }}"
+                    data-total-income="{{ metric.total_income or '' }}"
+                    data-total-expenses="{{ metric.total_expenses or '' }}"
+                    data-save-rate="{{ metric.save_rate or '' }}"
+                    {% endif %}
+                    id="editMetricsTrigger">Edit Metrics</button>
+        </div>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-3">
+            Metrics are recalculated automatically when you edit snapshots or spending. Use "Edit Metrics" to manually override.
+        </p>
+        <div class="row g-3" id="metricsDisplay">
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Net Worth</div>
+                    <div class="fs-5 fw-semibold" id="metricNetWorth">
+                        {% if metric and metric.net_worth is not none %}${{ "{:,.0f}".format(metric.net_worth) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Net Worth (excl. Real Estate)</div>
+                    <div class="fs-5 fw-semibold" id="metricNetWorthNonRe">
+                        {% if metric and metric.net_worth_non_re is not none %}${{ "{:,.0f}".format(metric.net_worth_non_re) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Save Rate <span data-bs-toggle="tooltip" data-bs-placement="top" title="Calculated as (Income − Expenses) ÷ Income. Pre-tax contributions (401k, HSA) not included unless entered as income." style="cursor:help;">ⓘ</span></div>
+                    <div class="fs-5 fw-semibold" id="metricSaveRate">
+                        {% if metric and metric.save_rate is not none %}{{ "%.1f"|format(metric.save_rate) }}%{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                    <small class="text-muted">Take-home income only</small>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Total Assets</div>
+                    <div class="fw-semibold" id="metricTotalAssets">
+                        {% if metric and metric.total_assets is not none %}${{ "{:,.0f}".format(metric.total_assets) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Total Liabilities</div>
+                    <div class="fw-semibold" id="metricTotalLiabilities">
+                        {% if metric and metric.total_liabilities is not none %}${{ "{:,.0f}".format(metric.total_liabilities) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">MoM Change</div>
+                    <div class="fw-semibold" id="metricMonthlyChange">
+                        {% if metric and metric.monthly_change_pct is not none %}
+                            <span class="{{ 'text-success' if metric.monthly_change_pct >= 0 else 'text-danger' }}">
+                                {{ "%+.2f"|format(metric.monthly_change_pct) }}%
+                            </span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Total Income</div>
+                    <div class="fw-semibold" id="metricTotalIncome">
+                        {% if metric and metric.total_income is not none %}${{ "{:,.0f}".format(metric.total_income) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">Total Expenses</div>
+                    <div class="fw-semibold" id="metricTotalExpenses">
+                        {% if metric and metric.total_expenses is not none %}${{ "{:,.0f}".format(metric.total_expenses) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4">
+                <div class="p-3 bg-light rounded">
+                    <div class="text-muted small">MoM Change ($)</div>
+                    <div class="fw-semibold" id="metricMonthlyChangeAmt">
+                        {% if metric and metric.monthly_change_amount is not none %}${{ "{:,.0f}".format(metric.monthly_change_amount) }}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ===== Modals ===== -->
+
+<!-- Edit Snapshot Modal -->
+<div class="modal fade" id="editSnapshotModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Snapshot — <span id="editSnapshotAccountName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editSnapshotId">
+                <div class="mb-3">
+                    <label class="form-label">Balance ($)</label>
+                    <input type="text" inputmode="decimal" class="form-control currency-input" id="editSnapshotBalance">
+                </div>
+                <div id="editSnapshotError" class="text-danger d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveSnapshotBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Spending Modal -->
+<div class="modal fade" id="addSpendingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Income / Expense</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">Account / Source</label>
+                    <input type="text" class="form-control" id="newSpendingAccount" placeholder="e.g. Chase, Paycheck">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Type</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="newSpendingType" id="newTypeIncome" value="income">
+                            <label class="form-check-label" for="newTypeIncome">Income</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="newSpendingType" id="newTypeExpense" value="expense" checked>
+                            <label class="form-check-label" for="newTypeExpense">Expense</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Amount ($)</label>
+                    <input type="number" step="0.01" class="form-control" id="newSpendingAmount" placeholder="0.00">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                    <input type="text" class="form-control" id="newSpendingNotes">
+                </div>
+                <div id="addSpendingError" class="text-danger d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveAddSpendingBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Spending Modal -->
+<div class="modal fade" id="editSpendingModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Entry</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editSpendingId">
+                <div class="mb-3">
+                    <label class="form-label">Account / Source</label>
+                    <input type="text" class="form-control" id="editSpendingAccount">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Type</label>
+                    <div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="editSpendingType" id="editTypeIncome" value="income">
+                            <label class="form-check-label" for="editTypeIncome">Income</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="radio" name="editSpendingType" id="editTypeExpense" value="expense">
+                            <label class="form-check-label" for="editTypeExpense">Expense</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Amount ($)</label>
+                    <input type="number" step="0.01" class="form-control" id="editSpendingAmount">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <input type="text" class="form-control" id="editSpendingNotes">
+                </div>
+                <div id="editSpendingError" class="text-danger d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveSpendingBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Metrics Modal -->
+<div class="modal fade" id="editMetricsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Metrics — {{ label }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">Manually override metric values. Note: editing snapshots or spending will overwrite these values via auto-recalculation.</p>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Total Assets ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricTotalAssets">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Total Liabilities ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricTotalLiabilities">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Net Worth ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricNetWorth">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Net Worth excl. Real Estate ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricNetWorthNonRe">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">MoM Change Amount ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricChangeAmt">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">MoM Change (%)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricChangePct">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Total Income ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricIncome">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Total Expenses ($)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricExpenses">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Save Rate (%)</label>
+                        <input type="number" step="0.01" class="form-control" id="editMetricSaveRate">
+                    </div>
+                </div>
+                <div id="editMetricsError" class="text-danger mt-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveMetricsBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const MONTH_STR = document.getElementById('monthStr').dataset.month;
+
+document.addEventListener('DOMContentLoaded', function () {
+    initSortableTable('spendingTable');
+});
+
+// ---------------------------------------------------------------------------
+// Month grid picker
+// ---------------------------------------------------------------------------
+(function () {
+    const ALL_MONTHS_SET = new Set({{ all_months | map(attribute='month') | list | tojson }});
+    const ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let gridYear = parseInt(MONTH_STR.slice(0, 4));
+
+    function renderGrid() {
+        document.getElementById('gridYear').textContent = gridYear;
+        const container = document.getElementById('gridMonths');
+        container.innerHTML = '';
+        for (let m = 1; m <= 12; m++) {
+            const mStr = gridYear + '-' + String(m).padStart(2, '0');
+            const hasData = ALL_MONTHS_SET.has(mStr);
+            const isActive = mStr === MONTH_STR;
+            const cell = document.createElement('div');
+            cell.className = 'col-3';
+            const btn = document.createElement('div');
+            btn.className = 'text-center rounded py-1 small' +
+                (isActive  ? ' bg-primary text-white fw-bold' :
+                 hasData   ? ' bg-light text-primary fw-semibold' :
+                             ' text-muted');
+            btn.style.cursor = hasData || !isActive ? 'pointer' : 'default';
+            btn.style.fontSize = '0.72rem';
+            btn.textContent = ABBR[m - 1];
+            btn.dataset.month = mStr;
+            btn.addEventListener('click', function () {
+                const target = this.dataset.month;
+                if (ALL_MONTHS_SET.has(target)) {
+                    window.location.href = '/monthly-update/' + target;
+                }
+                // Empty months: do nothing (user must add from the list page)
+            });
+            cell.appendChild(btn);
+            container.appendChild(cell);
+        }
+    }
+
+    document.getElementById('gridPrevYear').addEventListener('click', function () { gridYear--; renderGrid(); });
+    document.getElementById('gridNextYear').addEventListener('click', function () { gridYear++; renderGrid(); });
+    renderGrid();
+
+    // Keyboard arrow navigation (prev/next month)
+    document.addEventListener('keydown', function (e) {
+        if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+        if (e.key === 'ArrowLeft') {
+            const btn = document.getElementById('prevMonthBtn');
+            if (btn && !btn.classList.contains('disabled')) btn.click();
+        } else if (e.key === 'ArrowRight') {
+            const btn = document.getElementById('nextMonthBtn');
+            if (btn && !btn.classList.contains('disabled')) btn.click();
+        }
+    });
+})();
+
+// ---------------------------------------------------------------------------
+// Metrics display helpers
+// ---------------------------------------------------------------------------
+
+function fmt$(val) {
+    if (val == null) return '<span class="text-muted">—</span>';
+    return '$' + parseFloat(val).toLocaleString('en-US', {maximumFractionDigits: 0});
+}
+
+function fmtPct(val) {
+    if (val == null) return '<span class="text-muted">—</span>';
+    const n = parseFloat(val);
+    const cls = n >= 0 ? 'text-success' : 'text-danger';
+    return `<span class="${cls}">${n >= 0 ? '+' : ''}${n.toFixed(2)}%</span>`;
+}
+
+function fmtPctPlain(val) {
+    if (val == null) return '<span class="text-muted">—</span>';
+    return parseFloat(val).toFixed(1) + '%';
+}
+
+function updateBanner(data) {
+    const nw = data.net_worth != null ? '$' + parseFloat(data.net_worth).toLocaleString('en-US', {maximumFractionDigits: 0}) : '—';
+    const mom = data.monthly_change_pct != null ? (parseFloat(data.monthly_change_pct) >= 0 ? '+' : '') + parseFloat(data.monthly_change_pct).toFixed(1) + '%' : '—';
+    const sr = data.save_rate != null ? parseFloat(data.save_rate).toFixed(1) + '%' : '—';
+    const surplus = (data.total_income != null && data.total_expenses != null)
+        ? '$' + (parseFloat(data.total_income) - parseFloat(data.total_expenses)).toLocaleString('en-US', {maximumFractionDigits: 0})
+        : '—';
+    document.getElementById('bannerNW').textContent = nw;
+    document.getElementById('bannerMoM').textContent = mom;
+    document.getElementById('bannerSaveRate').textContent = sr;
+    document.getElementById('bannerSurplus').textContent = surplus;
+}
+
+function refreshMetricsDisplay() {
+    fetch('/api/metrics/calculate/' + MONTH_STR, {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('metricNetWorth').innerHTML = fmt$(data.net_worth);
+        document.getElementById('metricNetWorthNonRe').innerHTML = fmt$(data.net_worth_non_re);
+        document.getElementById('metricSaveRate').innerHTML = fmtPctPlain(data.save_rate);
+        document.getElementById('metricTotalAssets').innerHTML = fmt$(data.total_assets);
+        document.getElementById('metricTotalLiabilities').innerHTML = fmt$(data.total_liabilities);
+        document.getElementById('metricMonthlyChange').innerHTML = fmtPct(data.monthly_change_pct);
+        document.getElementById('metricTotalIncome').innerHTML = fmt$(data.total_income);
+        document.getElementById('metricTotalExpenses').innerHTML = fmt$(data.total_expenses);
+        document.getElementById('metricMonthlyChangeAmt').innerHTML = fmt$(data.monthly_change_amount);
+
+        // Update the Edit Metrics trigger button's data attributes
+        const trigger = document.getElementById('editMetricsTrigger');
+        const fields = {
+            'total-assets': data.total_assets,
+            'total-liabilities': data.total_liabilities,
+            'net-worth': data.net_worth,
+            'net-worth-non-re': data.net_worth_non_re,
+            'monthly-change-amount': data.monthly_change_amount,
+            'monthly-change-pct': data.monthly_change_pct,
+            'total-income': data.total_income,
+            'total-expenses': data.total_expenses,
+            'save-rate': data.save_rate,
+        };
+        for (const [k, v] of Object.entries(fields)) {
+            trigger.dataset[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v ?? '';
+        }
+
+        updateBanner(data);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Account Snapshots — collapse/expand
+// ---------------------------------------------------------------------------
+
+(function () {
+    const btn = document.getElementById('collapseSnapshotsBtn');
+    if (!btn) return;
+    let collapsed = false;
+
+    function setCollapsed(val) {
+        collapsed = val;
+        document.getElementById('snapshotsTableHead').style.display = collapsed ? 'none' : '';
+        document.querySelectorAll('.snapshot-group-header, .snapshot-detail-row')
+            .forEach(row => { row.style.display = collapsed ? 'none' : ''; });
+        btn.textContent = collapsed ? 'Expand' : 'Collapse';
+    }
+
+    btn.addEventListener('click', function () { setCollapsed(!collapsed); });
+
+    // Start collapsed on every page load
+    setCollapsed(true);
+})();
+
+// ---------------------------------------------------------------------------
+// Auto-calculate buttons
+// ---------------------------------------------------------------------------
+
+function triggerAutoCalc(btn) {
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Calculating...';
+    fetch('/api/metrics/calculate/' + MONTH_STR, {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        btn.disabled = false;
+        btn.textContent = orig;
+        if (data.net_worth !== undefined) {
+            refreshMetricsDisplay();
+        } else {
+            alert('Error: ' + (data.error || 'Calculation failed.'));
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.textContent = orig;
+        alert('Network error.');
+    });
+}
+
+document.getElementById('autoCalcBtn').addEventListener('click', function () {
+    triggerAutoCalc(this);
+});
+document.getElementById('autoCalcBtnCard').addEventListener('click', function () {
+    triggerAutoCalc(this);
+});
+
+// ---------------------------------------------------------------------------
+// Delete entire month
+// ---------------------------------------------------------------------------
+
+function deleteEntireMonth(monthStr) {
+    if (!confirm('Delete ALL data for ' + monthStr + '? This cannot be undone.')) return;
+    fetch('/api/months/' + monthStr, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            window.location.href = '/monthly-update';
+        } else {
+            alert('Error: ' + (data.error || 'Delete failed.'));
+        }
+    })
+    .catch(() => alert('Network error.'));
+}
+
+// ---------------------------------------------------------------------------
+// Account Snapshots — grid selector (#27)
+// ---------------------------------------------------------------------------
+
+(function () {
+    const MONTH   = MONTH_STR;
+    const gridCard = document.getElementById('snapshotGridCard');
+    const toggleBtn = document.getElementById('toggleGridBtn');
+
+    // Track state
+    const TOTAL     = {{ accounts | length }};
+    let doneCount   = {{ snapshotted_ids | length }};
+    let activeId    = null;   // currently-open account id
+    let activeGroup = null;   // loop.index of that account's group
+
+    // pill → group index lookup built from data attributes
+    const pillToGroup = {};
+    document.querySelectorAll('.acct-pill').forEach(pill => {
+        const brow = pill.closest('.card-body').querySelector(
+            '.balance-row:not([id="brow-' + pill.dataset.accountId + '"])'
+        );
+        // find which balance-row is in the same section
+        const section = pill.closest('.d-flex.flex-wrap');
+        const row = section?.nextElementSibling;
+        if (row?.classList.contains('balance-row')) {
+            pillToGroup[pill.dataset.accountId] = row.id.replace('brow-', '');
+        }
+    });
+
+    // Build a simpler map: accountId → groupIndex by walking the DOM once
+    const accountGroupMap = {};
+    document.querySelectorAll('#snapshotGridCard .d-flex.flex-wrap').forEach(section => {
+        const row = section.nextElementSibling;
+        if (!row?.classList.contains('balance-row')) return;
+        const gIdx = row.id.replace('brow-', '');
+        section.querySelectorAll('.acct-pill').forEach(p => {
+            accountGroupMap[p.dataset.accountId] = gIdx;
+        });
+    });
+
+    function updateProgress() {
+        document.getElementById('gridProgressLabel').textContent =
+            `${doneCount} of ${TOTAL} done`;
+        document.getElementById('gridProgressBar').style.width =
+            TOTAL ? Math.round(doneCount / TOTAL * 100) + '%' : '0%';
+    }
+    updateProgress();
+
+    // Show / hide grid
+    toggleBtn.addEventListener('click', function () {
+        const isShown = !gridCard.classList.contains('d-none');
+        gridCard.classList.toggle('d-none', isShown);
+        toggleBtn.textContent = isShown ? 'Show Wizard' : 'Hide Wizard';
+    });
+    document.getElementById('gridDoneBtn').addEventListener('click', function () {
+        gridCard.classList.add('d-none');
+        toggleBtn.textContent = 'Show Wizard';
+        cancelPill();
+    });
+
+    // Toggle a pill open/closed
+    window.togglePill = function (accountId) {
+        const id = String(accountId);
+        const pill = document.getElementById('pill-' + id);
+        if (!pill || pill.classList.contains('done')) return;
+
+        // Collapse the currently-open one if different
+        if (activeId && activeId !== id) {
+            const prev = document.getElementById('pill-' + activeId);
+            if (prev) prev.classList.remove('active');
+            const prevRow = document.getElementById('brow-' + accountGroupMap[activeId]);
+            if (prevRow) prevRow.classList.remove('visible');
+        }
+
+        if (activeId === id) {
+            // Collapse this one
+            pill.classList.remove('active');
+            const row = document.getElementById('brow-' + accountGroupMap[id]);
+            if (row) row.classList.remove('visible');
+            activeId = null;
+            activeGroup = null;
+        } else {
+            // Expand
+            pill.classList.add('active');
+            const gIdx = accountGroupMap[id];
+            const row = document.getElementById('brow-' + gIdx);
+            if (row) {
+                // Fill in metadata
+                document.getElementById('brow-name-' + gIdx).textContent = pill.dataset.accountName;
+                document.getElementById('brow-inst-' + gIdx).textContent = pill.dataset.institution || '';
+                const input = document.getElementById('brow-input-' + gIdx);
+                const lb = pill.dataset.lastBalance;
+                if (lb) {
+                    input.value = parseFloat(lb).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                    document.getElementById('brow-hint-' + gIdx).textContent =
+                        'prev $' + parseFloat(lb).toLocaleString('en-US', {maximumFractionDigits: 0});
+                } else {
+                    input.value = '';
+                    document.getElementById('brow-hint-' + gIdx).textContent = '';
+                }
+                // Store current account id on the save button
+                row.querySelector('.brow-save').dataset.accountId = id;
+                row.classList.add('visible');
+                setTimeout(() => input.focus(), 50);
+            }
+            activeId = id;
+            activeGroup = gIdx;
+        }
+    };
+
+    window.cancelPill = function () {
+        if (activeId) {
+            const pill = document.getElementById('pill-' + activeId);
+            if (pill) pill.classList.remove('active');
+            const row = document.getElementById('brow-' + accountGroupMap[activeId]);
+            if (row) row.classList.remove('visible');
+        }
+        activeId = null;
+        activeGroup = null;
+    };
+
+    window.savePill = function (gIdx) {
+        const row = document.getElementById('brow-' + gIdx);
+        const saveBtn = row.querySelector('.brow-save');
+        const accountId = saveBtn.dataset.accountId;
+        const input = document.getElementById('brow-input-' + gIdx);
+        const balance = parseFloat(input.value.replace(/[$,]/g, ''));
+
+        if (isNaN(balance)) {
+            input.classList.add('is-invalid');
+            setTimeout(() => input.classList.remove('is-invalid'), 1500);
+            return;
+        }
+
+        saveBtn.disabled = true;
+        fetch('/api/snapshots', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({account_id: parseInt(accountId), month: MONTH, balance}),
+        })
+        .then(r => r.json())
+        .then(j => {
+            saveBtn.disabled = false;
+            if (j.error) { alert(j.error); return; }
+
+            // Mark pill done
+            const pill = document.getElementById('pill-' + accountId);
+            pill.classList.remove('active');
+            pill.classList.add('done');
+            pill.onclick = null;
+            pill.innerHTML =
+                `<span class="pill-check">✓</span> ${pill.dataset.accountName}` +
+                (pill.dataset.institution ? ` <span class="pill-inst">${pill.dataset.institution}</span>` : '');
+
+            // Hide balance row
+            row.classList.remove('visible');
+            activeId = null;
+            activeGroup = null;
+
+            // Progress
+            doneCount++;
+            updateProgress();
+
+            // Reload the snapshot table to show the new entry
+            location.reload();
+        })
+        .catch(() => { saveBtn.disabled = false; alert('Network error.'); });
+    };
+
+    // Allow Enter to save when balance input is focused
+    document.querySelectorAll('.brow-input').forEach(input => {
+        input.addEventListener('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            const gIdx = this.id.replace('brow-input-', '');
+            savePill(gIdx);
+        });
+    });
+})();
+
+// Pre-fill edit snapshot modal
+document.getElementById('editSnapshotModal').addEventListener('show.bs.modal', function (e) {
+    const btn = e.relatedTarget;
+    document.getElementById('editSnapshotId').value = btn.dataset.snapshotId;
+    document.getElementById('editSnapshotAccountName').textContent = btn.dataset.accountName;
+    document.getElementById('editSnapshotBalance').value = btn.dataset.balance;
+    document.getElementById('editSnapshotError').classList.add('d-none');
+});
+
+// Save edited snapshot
+document.getElementById('saveSnapshotBtn').addEventListener('click', function () {
+    const id = document.getElementById('editSnapshotId').value;
+    const balance = parseFloat(document.getElementById('editSnapshotBalance').value.replace(/[$,]/g, ''));
+    const errEl = document.getElementById('editSnapshotError');
+    errEl.classList.add('d-none');
+
+    if (isNaN(balance)) {
+        errEl.textContent = 'Please enter a valid balance.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+
+    this.disabled = true;
+    fetch('/api/snapshots/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({balance: balance})
+    })
+    .then(r => r.json())
+    .then(data => {
+        this.disabled = false;
+        if (data.id) {
+            bootstrap.Modal.getInstance(document.getElementById('editSnapshotModal')).hide();
+            // Update the balance cell and Edit button data attribute in-place
+            const row = document.getElementById('snapshot-row-' + id);
+            if (row) {
+                const display = row.querySelector('.balance-display');
+                if (display) display.textContent =
+                    '$' + balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                const editBtn = row.querySelector('[data-snapshot-id]');
+                if (editBtn) editBtn.dataset.balance = balance;
+                const cell = row.querySelector('.balance-cell');
+                if (cell) {
+                    const lastBalance = parseFloat(cell.dataset.lastBalance) || 0;
+                    applyDeltaHighlight(row, balance, lastBalance);
+                }
+            }
+            refreshMetricsDisplay();
+        } else {
+            errEl.textContent = data.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    })
+    .catch(() => {
+        this.disabled = false;
+        errEl.textContent = 'Network error.';
+        errEl.classList.remove('d-none');
+    });
+});
+
+// Delete snapshot
+function deleteSnapshot(snapshotId) {
+    if (!confirm('Delete this snapshot?')) return;
+    fetch('/api/snapshots/' + snapshotId, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const row = document.getElementById('snapshot-row-' + snapshotId);
+            if (row) row.remove();
+            refreshMetricsDisplay();
+        } else {
+            alert('Error: ' + (data.error || 'Delete failed.'));
+        }
+    })
+    .catch(() => alert('Network error.'));
+}
+
+// ---------------------------------------------------------------------------
+// Spending Entries
+// ---------------------------------------------------------------------------
+
+// Pre-fill edit spending modal
+document.getElementById('editSpendingModal').addEventListener('show.bs.modal', function (e) {
+    const btn = e.relatedTarget;
+    document.getElementById('editSpendingId').value = btn.dataset.entryId;
+    document.getElementById('editSpendingAccount').value = btn.dataset.accountName;
+    document.getElementById('editSpendingAmount').value = btn.dataset.amount;
+    document.getElementById('editSpendingNotes').value = btn.dataset.notes;
+    document.getElementById('editSpendingError').classList.add('d-none');
+
+    const type = btn.dataset.entryType;
+    document.getElementById('editTypeIncome').checked = type === 'income';
+    document.getElementById('editTypeExpense').checked = type === 'expense';
+});
+
+// Save edited spending entry
+document.getElementById('saveSpendingBtn').addEventListener('click', function () {
+    const id = document.getElementById('editSpendingId').value;
+    const accountName = document.getElementById('editSpendingAccount').value.trim();
+    const amount = parseFloat(document.getElementById('editSpendingAmount').value);
+    const entryType = document.querySelector('input[name="editSpendingType"]:checked').value;
+    const notes = document.getElementById('editSpendingNotes').value;
+    const errEl = document.getElementById('editSpendingError');
+    errEl.classList.add('d-none');
+
+    if (!accountName || isNaN(amount)) {
+        errEl.textContent = 'Account name and a valid amount are required.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+
+    this.disabled = true;
+    fetch('/api/spending/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({account_name: accountName, amount: amount, entry_type: entryType, notes: notes})
+    })
+    .then(r => r.json())
+    .then(data => {
+        this.disabled = false;
+        if (data.id) {
+            bootstrap.Modal.getInstance(document.getElementById('editSpendingModal')).hide();
+            window.location.reload();
+        } else {
+            errEl.textContent = data.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    })
+    .catch(() => {
+        this.disabled = false;
+        errEl.textContent = 'Network error.';
+        errEl.classList.remove('d-none');
+    });
+});
+
+// Add new spending entry
+document.getElementById('saveAddSpendingBtn').addEventListener('click', function () {
+    const accountName = document.getElementById('newSpendingAccount').value.trim();
+    const amount = parseFloat(document.getElementById('newSpendingAmount').value);
+    const entryType = document.querySelector('input[name="newSpendingType"]:checked').value;
+    const notes = document.getElementById('newSpendingNotes').value;
+    const errEl = document.getElementById('addSpendingError');
+    errEl.classList.add('d-none');
+
+    if (!accountName || isNaN(amount)) {
+        errEl.textContent = 'Account name and a valid amount are required.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+
+    this.disabled = true;
+    fetch('/api/spending', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({month: MONTH_STR, account_name: accountName, amount: amount, entry_type: entryType, notes: notes})
+    })
+    .then(r => r.json())
+    .then(data => {
+        this.disabled = false;
+        if (data.id) {
+            bootstrap.Modal.getInstance(document.getElementById('addSpendingModal')).hide();
+            window.location.reload();
+        } else {
+            errEl.textContent = data.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    })
+    .catch(() => {
+        this.disabled = false;
+        errEl.textContent = 'Network error.';
+        errEl.classList.remove('d-none');
+    });
+});
+
+// Delete spending entry
+function deleteSpending(entryId) {
+    if (!confirm('Delete this entry?')) return;
+    fetch('/api/spending/' + entryId, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const row = document.getElementById('spending-row-' + entryId);
+            if (row) row.remove();
+            refreshMetricsDisplay();
+        } else {
+            alert('Error: ' + (data.error || 'Delete failed.'));
+        }
+    })
+    .catch(() => alert('Network error.'));
+}
+
+// ---------------------------------------------------------------------------
+// Edit Metrics Modal
+// ---------------------------------------------------------------------------
+
+document.getElementById('editMetricsModal').addEventListener('show.bs.modal', function (e) {
+    const btn = document.getElementById('editMetricsTrigger');
+    document.getElementById('editMetricTotalAssets').value = btn.dataset.totalAssets || '';
+    document.getElementById('editMetricTotalLiabilities').value = btn.dataset.totalLiabilities || '';
+    document.getElementById('editMetricNetWorth').value = btn.dataset.netWorth || '';
+    document.getElementById('editMetricNetWorthNonRe').value = btn.dataset.netWorthNonRe || '';
+    document.getElementById('editMetricChangeAmt').value = btn.dataset.monthlyChangeAmount || '';
+    document.getElementById('editMetricChangePct').value = btn.dataset.monthlyChangePct || '';
+    document.getElementById('editMetricIncome').value = btn.dataset.totalIncome || '';
+    document.getElementById('editMetricExpenses').value = btn.dataset.totalExpenses || '';
+    document.getElementById('editMetricSaveRate').value = btn.dataset.saveRate || '';
+    document.getElementById('editMetricsError').classList.add('d-none');
+});
+
+// Copy balances from previous month (empty state button)
+{% if copy_source %}
+document.getElementById('copyFromPrevBtn').addEventListener('click', function () {
+    this.disabled = true;
+    this.textContent = 'Copying...';
+    fetch('/api/months/' + MONTH_STR + '/copy-from-previous', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.copied !== undefined) {
+            window.location.reload();
+        } else {
+            this.disabled = false;
+            this.textContent = 'Copy balances from {{ copy_source_label }}';
+            alert(data.error || 'Copy failed.');
+        }
+    })
+    .catch(() => {
+        this.disabled = false;
+        this.textContent = 'Copy balances from {{ copy_source_label }}';
+        alert('Network error.');
+    });
+});
+{% endif %}
+
+// Keyboard shortcuts: Left = prev, Right = next
+document.addEventListener('keydown', function (e) {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (document.querySelector('.modal.show')) return;
+
+    if (e.key === 'ArrowLeft') {
+        const btn = document.getElementById('prevMonthBtn');
+        if (btn && !btn.classList.contains('disabled')) window.location.href = btn.href;
+    }
+    if (e.key === 'ArrowRight') {
+        const btn = document.getElementById('nextMonthBtn');
+        if (btn && !btn.classList.contains('disabled')) window.location.href = btn.href;
+    }
+});
+
+// ---------------------------------------------------------------------------
+// #47 Inline balance editing  /  #48 Ghost text  /  #58 Delta highlighting
+// ---------------------------------------------------------------------------
+
+function applyDeltaHighlight(row, newBalance, lastBalance) {
+    row.classList.remove('table-warning', 'table-danger');
+    const dismissBtn = row.querySelector('.delta-dismiss');
+    if (dismissBtn) dismissBtn.remove();
+    if (!lastBalance || lastBalance <= 0) return;
+
+    const pct = Math.abs((newBalance - lastBalance) / lastBalance);
+    let level = '';
+    if (pct > 0.50) level = 'danger';
+    else if (pct > 0.10) level = 'warning';
+    if (!level) return;
+
+    row.classList.add('table-' + level);
+    const dir = newBalance > lastBalance ? '↑' : '↓';
+    const pctStr = (pct * 100).toFixed(1);
+    const balanceCell = row.querySelector('.balance-cell');
+    if (balanceCell) {
+        balanceCell.setAttribute('title', `${dir}${pctStr}% from last month — is this correct?`);
+        balanceCell.setAttribute('data-bs-toggle', 'tooltip');
+        new bootstrap.Tooltip(balanceCell, {trigger: 'hover'});
+    }
+    // Dismiss button
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-link btn-sm delta-dismiss p-0 ms-2 text-reset';
+    btn.innerHTML = '✕';
+    btn.title = 'Dismiss';
+    btn.onclick = function(e) {
+        e.stopPropagation();
+        row.classList.remove('table-warning', 'table-danger');
+        btn.remove();
+        const tt = bootstrap.Tooltip.getInstance(balanceCell);
+        if (tt) tt.dispose();
+    };
+    row.cells[row.cells.length - 1].appendChild(btn);
+}
+
+function saveSnapshotInline(id, balance, cell) {
+    return fetch('/api/snapshots/' + id, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({balance: balance})
+    }).then(r => r.json()).then(data => {
+        if (data.id) {
+            // Update the balance display and modal data attribute
+            const display = cell.querySelector('.balance-display');
+            if (display) display.textContent = '$' + balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const editBtn = cell.closest('tr').querySelector('[data-snapshot-id]');
+            if (editBtn) editBtn.dataset.balance = balance;
+
+            // #58 Delta highlight
+            const lastBalance = parseFloat(cell.dataset.lastBalance) || 0;
+            applyDeltaHighlight(cell.closest('tr'), balance, lastBalance);
+
+            refreshMetricsDisplay();
+        }
+        return data;
+    });
+}
+
+(function () {
+    document.querySelectorAll('.balance-cell').forEach(function (cell) {
+        cell.addEventListener('click', function (e) {
+            if (cell.querySelector('.inline-balance-input')) return; // already editing
+            if (e.target.classList.contains('delta-dismiss')) return;
+
+            const snapshotId = cell.dataset.snapshotId;
+            if (!snapshotId) return;
+
+            const display = cell.querySelector('.balance-display');
+            const currentRaw = display ? display.textContent.replace(/[$,]/g, '') : '0';
+            const lastBalance = parseFloat(cell.dataset.lastBalance) || 0;
+            const placeholder = lastBalance > 0
+                ? 'Last: $' + lastBalance.toLocaleString('en-US', {maximumFractionDigits: 0})
+                : '';
+
+            // Replace display with input
+            if (display) display.style.display = 'none';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.inputMode = 'decimal';
+            input.className = 'form-control form-control-sm inline-balance-input currency-input';
+            input.value = parseFloat(currentRaw).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            input.placeholder = placeholder;
+            cell.appendChild(input);
+            input.focus();
+            input.select();
+
+            function commit() {
+                const val = parseFloat(input.value.replace(/[$,]/g, ''));
+                if (isNaN(val)) { cancel(); return; }
+                input.disabled = true;
+                saveSnapshotInline(snapshotId, val, cell).then(() => {
+                    input.remove();
+                    if (display) display.style.display = '';
+                }).catch(() => { input.disabled = false; });
+            }
+
+            function cancel() {
+                input.remove();
+                if (display) display.style.display = '';
+            }
+
+            input.addEventListener('blur', commit);
+
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                if (e.key === 'Escape') { e.preventDefault(); input.removeEventListener('blur', commit); cancel(); }
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    input.removeEventListener('blur', commit);
+                    commit();
+                    // Move to next balance cell
+                    const allCells = Array.from(document.querySelectorAll('.balance-cell'));
+                    const idx = allCells.indexOf(cell);
+                    const next = e.shiftKey ? allCells[idx - 1] : allCells[idx + 1];
+                    if (next) setTimeout(() => next.click(), 50);
+                }
+            });
+        });
+    });
+
+    // Initialize Bootstrap tooltips on page load
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        new bootstrap.Tooltip(el);
+    });
+})();
+
+// ---------------------------------------------------------------------------
+// #57 Account sparklines (lazy via IntersectionObserver)
+// ---------------------------------------------------------------------------
+(function () {
+    const cells = document.querySelectorAll('.sparkline-cell');
+    if (!cells.length || typeof IntersectionObserver === 'undefined') return;
+
+    const rendered = new Set();
+    const observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            const cell = entry.target;
+            const accountId = cell.dataset.accountId;
+            if (rendered.has(accountId)) return;
+            rendered.add(accountId);
+            observer.unobserve(cell);
+
+            fetch('/api/accounts/' + accountId + '/history')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.history || data.history.length < 2) return;
+                    const dates = data.history.map(h => h.date);
+                    const vals  = data.history.map(h => h.balance);
+                    Plotly.newPlot(cell.id, [{
+                        x: dates, y: vals,
+                        type: 'scatter', mode: 'lines',
+                        line: {color: '#0d6efd', width: 1.5},
+                        hoverinfo: 'skip',
+                    }], {
+                        margin: {l: 0, r: 0, t: 0, b: 0},
+                        xaxis: {visible: false},
+                        yaxis: {visible: false},
+                        showlegend: false,
+                        height: 36,
+                        plot_bgcolor: 'transparent',
+                        paper_bgcolor: 'transparent',
+                    }, {staticPlot: true, responsive: true, displayModeBar: false});
+                })
+                .catch(() => {});
+        });
+    }, {threshold: 0.1});
+
+    cells.forEach(cell => observer.observe(cell));
+})();
+
+document.getElementById('saveMetricsBtn').addEventListener('click', function () {
+    const errEl = document.getElementById('editMetricsError');
+    errEl.classList.add('d-none');
+
+    const parseField = id => {
+        const v = document.getElementById(id).value;
+        return v === '' ? null : parseFloat(v);
+    };
+
+    const payload = {
+        total_assets: parseField('editMetricTotalAssets'),
+        total_liabilities: parseField('editMetricTotalLiabilities'),
+        net_worth: parseField('editMetricNetWorth'),
+        net_worth_non_re: parseField('editMetricNetWorthNonRe'),
+        monthly_change_amount: parseField('editMetricChangeAmt'),
+        monthly_change_pct: parseField('editMetricChangePct'),
+        total_income: parseField('editMetricIncome'),
+        total_expenses: parseField('editMetricExpenses'),
+        save_rate: parseField('editMetricSaveRate'),
+    };
+
+    this.disabled = true;
+    fetch('/api/metrics/' + MONTH_STR, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    })
+    .then(r => r.json())
+    .then(data => {
+        this.disabled = false;
+        if (data.month) {
+            bootstrap.Modal.getInstance(document.getElementById('editMetricsModal')).hide();
+            refreshMetricsDisplay();
+        } else {
+            errEl.textContent = data.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    })
+    .catch(() => {
+        this.disabled = false;
+        errEl.textContent = 'Network error.';
+        errEl.classList.remove('d-none');
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,709 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+
+{% block content %}
+<div class="row align-items-center mb-3">
+  <div class="col">
+    <h1 class="mb-0">Reports</h1>
+    <p class="text-muted mb-0">Portfolio allocation, cash flow, and savings trends</p>
+  </div>
+  <div class="col-auto d-flex gap-2 align-items-center" id="investmentsActions">
+    {% if holdings_count > 0 %}
+    <span class="small {% if prices_stale %}text-warning{% else %}text-muted{% endif %}" id="stalenessLabel">
+      {% if prices_stale %}● Prices may be stale{% else %}● Prices current{% endif %}
+    </span>
+    <button class="btn btn-outline-secondary btn-sm" id="btnRefreshAlloc">Refresh Prices</button>
+    {% endif %}
+    <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#targetModal">
+      Edit Targets
+    </button>
+  </div>
+</div>
+
+<!-- Tab nav -->
+<ul class="nav nav-tabs mb-4" id="reportsTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-investments" data-bs-toggle="tab"
+            data-bs-target="#tabInvestments" type="button" role="tab">
+      Investments
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-cashflow" data-bs-toggle="tab"
+            data-bs-target="#tabCashFlow" type="button" role="tab">
+      Cash Flow
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="reportsTabContent">
+
+  <!-- ── Investments tab ──────────────────────────────────────────────────── -->
+  <div class="tab-pane fade show active" id="tabInvestments" role="tabpanel">
+
+    <!-- Header chips -->
+    <div class="row g-3 mb-4">
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center">
+          <div class="fw-bold fs-5">${{ "{:,.0f}".format(total_invested) }}</div>
+          <div class="text-muted small">Total Invested</div>
+        </div>
+      </div>
+      {% if unclassified > 0 %}
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center border-warning">
+          <div class="fw-bold fs-5 text-warning">${{ "{:,.0f}".format(unclassified) }}</div>
+          <div class="text-muted small">Unclassified</div>
+        </div>
+      </div>
+      {% endif %}
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center
+          {% if status == 'on_target' %}border-success{% elif status == 'review' %}border-warning{% else %}border-danger{% endif %}">
+          <div class="fw-bold fs-5
+            {% if status == 'on_target' %}text-success{% elif status == 'review' %}text-warning{% else %}text-danger{% endif %}">
+            {% if status == 'on_target' %}● On Target{% elif status == 'review' %}● Review{% else %}● Rebalance{% endif %}
+          </div>
+          <div class="text-muted small">Status</div>
+        </div>
+      </div>
+    </div>
+
+    {% if total_invested == 0 %}
+    <div class="alert alert-info">
+      No investment account balances found. Add monthly snapshots for your investment accounts,
+      then set allocation splits on each account's edit page.
+    </div>
+    {% else %}
+
+    <div class="row g-4">
+      <!-- col-3: stacked bar -->
+      <div class="col-lg-3">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Actual vs Target</div>
+          <div class="card-body p-2">
+            <div id="allocBarChart" style="height:280px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- col-9: drift table + breakdown -->
+      <div class="col-lg-9">
+        <div class="card mb-3">
+          <div class="card-header fw-semibold">Asset Class Drift</div>
+          <div class="card-body p-0">
+            <table class="table table-sm mb-0" id="driftTable">
+              <thead class="table-light">
+                <tr>
+                  <th data-sort-type="text">Class</th>
+                  <th class="text-end" data-sort-type="number">Target</th>
+                  <th class="text-end" data-sort-type="number">Actual</th>
+                  <th class="text-end" data-sort-type="number">Drift</th>
+                  <th class="text-end" data-sort-type="number">$ Gap</th>
+                  <th class="text-end" data-sort-type="number">$ Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cls in allocation_classes %}
+                {% set drift = drifts[cls] %}
+                {% set gap   = gaps[cls] %}
+                <tr>
+                  <td class="text-capitalize fw-semibold">{{ cls }}</td>
+                  <td class="text-end text-muted">{{ "%.1f"|format(targets.get(cls, 0)) }}%</td>
+                  <td class="text-end">{{ "%.1f"|format(actuals[cls]) }}%</td>
+                  <td class="text-end fw-semibold
+                    {% if drift|abs <= 2 %}text-success
+                    {% elif drift|abs <= 5 %}text-warning
+                    {% else %}text-danger{% endif %}">
+                    {% if drift > 0 %}+{% endif %}{{ "%.1f"|format(drift) }}pp
+                  </td>
+                  <td class="text-end
+                    {% if gap > 0 %}text-success{% elif gap < 0 %}text-danger{% else %}text-muted{% endif %}">
+                    {% if gap > 0 %}+{% endif %}${{ "{:,.0f}".format(gap|abs) }}
+                    {% if gap > 0 %}<span class="text-muted small">buy</span>
+                    {% elif gap < 0 %}<span class="text-muted small">trim</span>{% endif %}
+                  </td>
+                  <td class="text-end text-muted">${{ "{:,.0f}".format(totals[cls]) }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light sort-skip">
+                <tr class="sort-skip">
+                  <td class="fw-semibold">Total</td>
+                  <td class="text-end text-muted">100%</td>
+                  <td class="text-end fw-semibold">{{ "%.1f"|format(actuals.values()|sum) }}%</td>
+                  <td></td><td></td>
+                  <td class="text-end fw-semibold">${{ "{:,.0f}".format(total_invested) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- By-account breakdown (collapsible) -->
+        <div class="card">
+          <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+            <span>By Account</span>
+            <button class="btn btn-sm btn-link p-0 text-muted" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#byAccountBody">
+              Show / Hide
+            </button>
+          </div>
+          <div class="collapse show" id="byAccountBody">
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0" id="byAccountTable">
+                <thead class="table-light">
+                  <tr>
+                    <th data-sort-type="text">Account</th>
+                    {% for cls in allocation_classes %}
+                    <th class="text-end text-capitalize" data-sort-type="number">{{ cls }}</th>
+                    {% endfor %}
+                    <th class="text-end" data-sort-type="number">Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in by_account %}
+                  <tr>
+                    <td>
+                      {{ row.account.name }}
+                      {% if row.account.institution %}
+                      <span class="text-muted small"> · {{ row.account.institution }}</span>
+                      {% endif %}
+                      {% if row.source == 'holdings' %}
+                      <span class="badge bg-info text-dark ms-1" title="Allocation derived from holdings">Holdings</span>
+                      {% elif row.source == 'cash' %}
+                      <span class="badge bg-secondary ms-1" title="Automatically 100% cash">Cash</span>
+                      {% elif not row.splits %}
+                      <a href="/accounts/{{ row.account.id }}/edit"
+                         class="badge bg-warning text-dark text-decoration-none ms-1"
+                         title="No allocation set — click to configure">
+                        Set allocation
+                      </a>
+                      {% endif %}
+                    </td>
+                    {% for cls in allocation_classes %}
+                    <td class="text-end text-muted small">
+                      {% if row.contributions.get(cls) %}
+                        ${{ "{:,.0f}".format(row.contributions[cls]) }}
+                        <span class="text-muted" style="font-size:.7rem">
+                          ({{ "%.0f"|format(row.splits.get(cls, 0)) }}%)
+                        </span>
+                      {% else %}—{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="text-end fw-semibold">${{ "{:,.0f}".format(row.balance) }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /col-9 -->
+    </div><!-- /row -->
+
+    {% if cap_invested_total > 0 %}
+    <!-- Market Cap Distribution -->
+    <div class="row g-4 mt-2">
+      <div class="col-lg-3">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Market Cap Distribution</div>
+          <div class="card-body p-2">
+            <div id="capBarChart" style="height:160px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-9">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">Market Cap Breakdown</div>
+          <div class="card-body p-0">
+            <table class="table table-sm mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Cap Tier</th>
+                  <th class="text-end">% of Portfolio</th>
+                  <th class="text-end">$ Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for cap in cap_classes %}
+                {% if cap_totals[cap] > 0 %}
+                <tr>
+                  <td class="fw-semibold">
+                    {% if cap == 'large' %}Large-Cap
+                    {% elif cap == 'mid' %}Mid-Cap
+                    {% elif cap == 'small' %}Small-Cap
+                    {% else %}Other / Blended{% endif %}
+                  </td>
+                  <td class="text-end">{{ "%.1f"|format(cap_pcts[cap]) }}%</td>
+                  <td class="text-end text-muted">${{ "{:,.0f}".format(cap_totals[cap]) }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light">
+                <tr>
+                  <td class="fw-semibold">Total</td>
+                  <td class="text-end fw-semibold">100%</td>
+                  <td class="text-end fw-semibold">${{ "{:,.0f}".format(cap_invested_total) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if all_holdings_rows %}
+    <!-- All Holdings -->
+    <div class="card mt-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">All Holdings</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                data-bs-toggle="collapse" data-bs-target="#allHoldingsBody"
+                aria-expanded="true">Collapse</button>
+      </div>
+      <div class="collapse show" id="allHoldingsBody">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="allHoldingsTable">
+              <thead class="table-light">
+                <tr>
+                  <th data-sort-type="text">Account</th>
+                  <th data-sort-type="text">Ticker</th>
+                  <th data-sort-type="text">Name</th>
+                  <th class="text-end" data-sort-type="number">Shares</th>
+                  <th class="text-end" data-sort-type="number">Price</th>
+                  <th class="text-end" data-sort-type="number">Value</th>
+                  <th>Allocation</th>
+                  <th data-sort-type="text">Cap</th>
+                  <th class="text-muted small" data-sort-type="text">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% set ns = namespace(total=0) %}
+                {% for row in all_holdings_rows %}
+                <tr>
+                  <td class="small">
+                    {{ row.account_name }}
+                    {% if row.account_institution %}<span class="text-muted"> · {{ row.account_institution }}</span>{% endif %}
+                  </td>
+                  <td class="font-monospace fw-semibold">{{ row.holding.ticker }}</td>
+                  <td class="text-muted small">{{ row.holding.name or '—' }}</td>
+                  <td class="text-end small">{{ "{:,.4f}".format(row.holding.shares) if row.holding.shares is not none else '—' }}</td>
+                  <td class="text-end small {% if row.is_stale %}text-warning{% endif %}">
+                    {{ "${:,.2f}".format(row.holding.last_price) if row.holding.last_price is not none else '—' }}
+                  </td>
+                  <td class="text-end fw-semibold">
+                    {% if row.value is not none %}
+                      ${{ "{:,.0f}".format(row.value) }}
+                      {% set ns.total = ns.total + row.value %}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td class="small">
+                    {% if row.alloc_splits %}
+                      {% for cls, pct in row.alloc_splits.items() if pct > 0 %}
+                        <span class="text-capitalize">{{ cls }} {{ "%.0f"|format(pct) }}%</span>{% if not loop.last %}, {% endif %}
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-warning small">Unclassified</span>
+                    {% endif %}
+                  </td>
+                  <td class="small text-muted text-capitalize">{{ row.cap_class or '—' }}</td>
+                  <td class="small text-muted" data-sort-value="{{ row.holding.last_fetched.strftime('%Y-%m-%d') if row.holding.last_fetched else '' }}">
+                    {% if row.holding.last_fetched %}
+                      <span {% if row.is_stale %}class="text-warning"{% endif %}>{{ row.holding.last_fetched | datefmt('%b %-d') }}</span>
+                    {% else %}—{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+              <tfoot class="table-light fw-semibold sort-skip">
+                <tr class="sort-skip">
+                  <td colspan="5" class="text-end text-muted small fst-italic">Total</td>
+                  <td class="text-end">${{ "{:,.0f}".format(ns.total) }}</td>
+                  <td colspan="3"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% endif %}{# /total_invested > 0 #}
+
+    <!-- Allocation History chart -->
+    <div class="card mt-4">
+      <div class="card-header fw-semibold">Asset Allocation Over Time</div>
+      <div class="card-body">
+        <div id="allocHistoryChart" style="height:320px;"></div>
+        <div class="text-muted small mt-2" id="allocHistoryNote"></div>
+      </div>
+    </div>
+
+  </div><!-- /tabInvestments -->
+
+  <!-- ── Cash Flow tab ────────────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabCashFlow" role="tabpanel">
+
+    <!-- YTD summary chips -->
+    <div class="row g-3 mb-4">
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center">
+          <div class="fw-bold fs-5 text-success">${{ "{:,.0f}".format(ytd_income) }}</div>
+          <div class="text-muted small">{{ ytd_year }} Income</div>
+        </div>
+      </div>
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center">
+          <div class="fw-bold fs-5 text-danger">${{ "{:,.0f}".format(ytd_expenses) }}</div>
+          <div class="text-muted small">{{ ytd_year }} Expenses</div>
+        </div>
+      </div>
+      {% if ytd_save_rate is not none %}
+      <div class="col-auto">
+        <div class="card px-3 py-2 text-center">
+          <div class="fw-bold fs-5">{{ "{:.1f}".format(ytd_save_rate) }}%</div>
+          <div class="text-muted small">{{ ytd_year }} Save Rate</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Income vs Expenses chart -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Monthly Income vs Expenses</div>
+      <div class="card-body">
+        <div id="cfIncomeExpenseChart" style="height:300px;"></div>
+      </div>
+    </div>
+
+    <!-- Save Rate chart -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold">Save Rate — Monthly &amp; 12-Month Rolling Average</div>
+      <div class="card-body">
+        <div id="cfSaveRateChart" style="height:280px;"></div>
+      </div>
+    </div>
+
+  </div><!-- /tabCashFlow -->
+
+</div><!-- /tab-content -->
+
+<!-- ── Target Edit Modal ── -->
+<div class="modal fade" id="targetModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Target Allocation</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted small mb-3">Percentages must sum to 100.</p>
+        {% for cls in allocation_classes %}
+        <div class="mb-2">
+          <label class="form-label small text-capitalize mb-1">{{ cls }}</label>
+          <div class="input-group input-group-sm">
+            <input type="number" class="form-control target-input" id="target_{{ cls }}"
+                   min="0" max="100" step="0.5"
+                   value="{{ "%.1f"|format(targets.get(cls, 0)) }}">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+        {% endfor %}
+        <div class="mt-2 small" id="targetSum"></div>
+        <div class="text-danger small d-none mt-1" id="targetError"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="saveTargetsBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<script>
+function isDark() { return document.documentElement.getAttribute('data-bs-theme') === 'dark'; }
+function axisColor() { return isDark() ? '#a1a1aa' : '#444'; }
+function gridColor() { return isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'; }
+
+// Hide the Investments action buttons when Cash Flow tab is active
+document.getElementById('tab-cashflow').addEventListener('shown.bs.tab', function () {
+  document.getElementById('investmentsActions').style.display = 'none';
+});
+document.getElementById('tab-investments').addEventListener('shown.bs.tab', function () {
+  document.getElementById('investmentsActions').style.display = '';
+});
+
+// ── Investments tab charts ────────────────────────────────────────────────────
+{% if total_invested > 0 %}
+const _allocClasses = {{ allocation_classes | tojson }};
+const _allocActuals = {{ actuals_list | tojson }};
+const _allocTgts    = {{ targets_list | tojson }};
+const ALLOC_COLORS  = {domestic:'#4e79a7', international:'#f28e2b', bonds:'#59a14f', cash:'#b07aa1'};
+
+function renderAllocBarChart() {
+  const ac = axisColor();
+  const traces = [];
+  _allocClasses.forEach(function(cls, i) {
+    traces.push({
+      x: [_allocActuals[i]], y: ['Actual'], type: 'bar', orientation: 'h',
+      name: cls.charAt(0).toUpperCase() + cls.slice(1),
+      marker: {color: ALLOC_COLORS[cls] || '#aaa'},
+      text: _allocActuals[i] > 3 ? [`${cls}<br>${_allocActuals[i].toFixed(1)}%`] : [''],
+      textposition: 'inside', hoverinfo: 'skip',
+    });
+    traces.push({
+      x: [_allocTgts[i]], y: ['Target'], type: 'bar', orientation: 'h',
+      name: cls, showlegend: false,
+      marker: {color: ALLOC_COLORS[cls] || '#aaa', opacity: 0.45},
+      text: _allocTgts[i] > 3 ? [`${cls}<br>${_allocTgts[i].toFixed(1)}%`] : [''],
+      textposition: 'inside', hoverinfo: 'skip',
+    });
+  });
+  Plotly.react('allocBarChart', traces, {
+    barmode: 'stack',
+    margin: {l: 50, r: 10, t: 10, b: 30},
+    xaxis: {range: [0, 100], ticksuffix: '%', fixedrange: true, color: ac},
+    yaxis: {fixedrange: true, color: ac},
+    font: {color: ac},
+    showlegend: false,
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+  }, {displayModeBar: false, responsive: true});
+}
+renderAllocBarChart();
+{% endif %}
+
+{% if cap_invested_total > 0 %}
+const CAP_COLORS = {large: '#4e79a7', mid: '#f28e2b', small: '#59a14f', other: '#bab0ac'};
+const CAP_LABELS = {large: 'Large-Cap', mid: 'Mid-Cap', small: 'Small-Cap', other: 'Other/Blended'};
+const _capClasses = {{ cap_classes | tojson }};
+const _capPcts    = {{ cap_pcts | tojson }};
+
+function renderCapBarChart() {
+  const ac = axisColor();
+  const capTraces = _capClasses
+    .filter(c => _capPcts[c] > 0)
+    .map(c => ({
+      x: [_capPcts[c]], y: ['Portfolio'], type: 'bar', orientation: 'h',
+      name: CAP_LABELS[c],
+      marker: {color: CAP_COLORS[c]},
+      text: _capPcts[c] > 3 ? [`${CAP_LABELS[c]}<br>${_capPcts[c].toFixed(1)}%`] : [''],
+      textposition: 'inside', hoverinfo: 'skip',
+    }));
+  Plotly.react('capBarChart', capTraces, {
+    barmode: 'stack',
+    margin: {l: 60, r: 10, t: 10, b: 30},
+    xaxis: {range: [0, 100], ticksuffix: '%', fixedrange: true, color: ac},
+    yaxis: {fixedrange: true, color: ac},
+    font: {color: ac},
+    showlegend: false,
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+  }, {displayModeBar: false, responsive: true});
+}
+renderCapBarChart();
+{% endif %}
+
+// ── Allocation History chart (Investments tab) ───────────────────────────────
+let _allocHistData = null;
+
+function renderAllocHistoryChart() {
+  if (!_allocHistData) return;
+  const data = _allocHistData;
+  const ac = axisColor();
+  const gc = gridColor();
+  const HIST_COLORS = {
+    'Cash': '#6c757d', 'Investments': '#0d6efd',
+    'Retirement': '#198754', 'Real Estate': '#fd7e14', 'Liabilities': '#dc3545',
+  };
+  Plotly.react('allocHistoryChart',
+    Object.keys(data.by_category).map(cat => ({
+      x: data.months, y: data.by_category[cat],
+      name: cat, type: 'bar',
+      marker: {color: HIST_COLORS[cat] || '#adb5bd'},
+    })),
+    {
+      barmode: 'relative',
+      yaxis: {title: 'Balance ($)', tickformat: '$.3s', color: ac, gridcolor: gc},
+      xaxis: {color: ac, showgrid: false},
+      font: {color: ac},
+      legend: {orientation: 'h', y: -0.18},
+      margin: {l: 70, r: 20, t: 10, b: 50},
+      hovermode: 'x unified',
+      plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+    },
+    {responsive: true, displayModeBar: false}
+  );
+}
+
+fetch('/api/allocation-history')
+  .then(r => r.json())
+  .then(data => {
+    if (!data.months || !data.months.length) {
+      const note = document.getElementById('allocHistoryNote');
+      if (note) note.textContent = 'No snapshot data available yet.';
+      return;
+    }
+    _allocHistData = data;
+    renderAllocHistoryChart();
+    if (data.note) {
+      const note = document.getElementById('allocHistoryNote');
+      if (note) note.textContent = data.note;
+    }
+  });
+
+new MutationObserver(() => {
+  {% if total_invested > 0 %}renderAllocBarChart();{% endif %}
+  {% if cap_invested_total > 0 %}renderCapBarChart();{% endif %}
+  renderAllocHistoryChart();
+}).observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
+
+// ── Cash Flow tab charts (lazy: render when tab becomes visible) ─────────────
+let cfChartsRendered = false;
+
+function renderCashFlowCharts() {
+  if (cfChartsRendered) return;
+  cfChartsRendered = true;
+  const ac = axisColor();
+  const gc = gridColor();
+
+  // Income vs Expenses grouped bar
+  fetch('/api/cashflow-history')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.months || !data.months.length) return;
+      Plotly.newPlot('cfIncomeExpenseChart', [
+        {
+          x: data.months, y: data.income,
+          name: 'Income', type: 'bar',
+          marker: { color: isDark() ? 'rgba(74,222,128,0.7)' : 'rgba(22,163,74,0.7)' },
+        },
+        {
+          x: data.months, y: data.expenses,
+          name: 'Expenses', type: 'bar',
+          marker: { color: isDark() ? 'rgba(248,113,113,0.7)' : 'rgba(220,38,38,0.65)' },
+        },
+      ], {
+        barmode: 'group',
+        xaxis: { color: ac, showgrid: false, zeroline: false },
+        yaxis: { tickformat: '$,.0f', color: ac, gridcolor: gc, zeroline: false },
+        font: { color: ac },
+        hovermode: 'x unified',
+        legend: { orientation: 'h', y: -0.2 },
+        margin: { l: 70, r: 20, t: 10, b: 50 },
+        plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+      }, { responsive: true, displayModeBar: false });
+    });
+
+  // Save Rate
+  fetch('/api/save-rate-history')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.months || !data.months.length) return;
+      Plotly.newPlot('cfSaveRateChart', [
+        {
+          x: data.months, y: data.save_rate,
+          name: 'Monthly Save Rate', type: 'bar',
+          marker: { color: 'rgba(13,110,253,0.35)' },
+        },
+        {
+          x: data.months, y: data.rolling_12,
+          name: '12-Month Rolling Avg', type: 'scatter', mode: 'lines+markers',
+          line: { color: '#0d6efd', width: 2 }, marker: { size: 4 },
+        },
+      ], {
+        shapes: [{
+          type: 'line', xref: 'paper', yref: 'y',
+          x0: 0, x1: 1, y0: data.target, y1: data.target,
+          line: { color: '#198754', width: 1.5, dash: 'dash' },
+        }],
+        annotations: [{
+          xref: 'paper', yref: 'y', x: 1, y: data.target,
+          text: `Target ${data.target}%`,
+          showarrow: false, font: { size: 11, color: '#198754' },
+          xanchor: 'right', yanchor: 'bottom',
+        }],
+        yaxis: { title: 'Save Rate (%)', ticksuffix: '%', color: ac, gridcolor: gc },
+        xaxis: { color: ac, showgrid: false },
+        font: { color: ac },
+        legend: { orientation: 'h', y: -0.2 },
+        margin: { l: 60, r: 20, t: 10, b: 50 },
+        hovermode: 'x unified',
+        plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+      }, { responsive: true, displayModeBar: false });
+    });
+}
+
+document.getElementById('tab-cashflow').addEventListener('shown.bs.tab', renderCashFlowCharts);
+
+// ── Target modal sum validator ────────────────────────────────────────────────
+(function () {
+  const inputs = document.querySelectorAll('.target-input');
+  const sumEl  = document.getElementById('targetSum');
+  const errEl  = document.getElementById('targetError');
+
+  function updateSum() {
+    const total = Array.from(inputs).reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+    const r = Math.round(total * 10) / 10;
+    sumEl.textContent = `Sum: ${r}%`;
+    sumEl.className   = 'mt-2 small ' + (Math.abs(r - 100) < 0.5 ? 'text-success' : 'text-danger');
+  }
+  inputs.forEach(el => el.addEventListener('input', updateSum));
+  updateSum();
+
+  document.getElementById('saveTargetsBtn').addEventListener('click', function () {
+    const data = {};
+    inputs.forEach(el => data[el.id.replace('target_', '')] = parseFloat(el.value) || 0);
+    errEl.classList.add('d-none');
+    fetch('/api/allocation/targets', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data),
+    })
+    .then(r => r.json())
+    .then(j => {
+      if (j.error) { errEl.textContent = j.error; errEl.classList.remove('d-none'); return; }
+      location.reload();
+    });
+  });
+})();
+
+// ── Sortable tables ───────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+  initSortableTable('driftTable');
+  initSortableTable('byAccountTable');
+  initSortableTable('allHoldingsTable');
+});
+
+// ── Refresh Prices button ─────────────────────────────────────────────────────
+(function () {
+  const btn = document.getElementById('btnRefreshAlloc');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    fetch('/api/prices/refresh', {method: 'POST'})
+      .then(r => r.json())
+      .then(j => {
+        const lbl = document.getElementById('stalenessLabel');
+        if (lbl) {
+          lbl.className = 'small text-muted';
+          lbl.textContent = `● Updated ${j.updated} price${j.updated !== 1 ? 's' : ''}`;
+        }
+        setTimeout(() => location.reload(), 800);
+      })
+      .catch(() => {
+        btn.textContent = 'Refresh failed';
+        btn.disabled = false;
+      });
+  });
+})();
+</script>
+{% endblock %}

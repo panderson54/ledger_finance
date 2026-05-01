@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Monthly Update{% endblock %}
+
+{% block content %}
+<div class="row align-items-center mb-3">
+    <div class="col">
+        <h1>Monthly Data</h1>
+        <p class="text-muted mb-0">View, edit, or delete data for any month</p>
+    </div>
+    <div class="col-auto d-flex gap-2">
+        <a href="{{ url_for('main.export_csv') }}" class="btn btn-outline-secondary">Export CSV</a>
+        <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import CSV</a>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMonthModal">
+            + Add New Month
+        </button>
+    </div>
+</div>
+
+{% if months %}
+<div class="card">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Month</th>
+                    <th class="text-end">Net Worth</th>
+                    <th class="text-end">Save Rate</th>
+                    <th class="text-end">MoM Change</th>
+                    <th class="text-center">Snapshots</th>
+                    <th class="text-center">Spending</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in months %}
+                <tr id="month-row-{{ m.month }}">
+                    <td class="fw-semibold">{{ m.label }}</td>
+                    <td class="text-end">
+                        {% if m.net_worth is not none %}
+                            ${{ "{:,.0f}".format(m.net_worth) }}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        {% if m.save_rate is not none %}
+                            {{ "%.1f"|format(m.save_rate) }}%
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-end">
+                        {% if m.monthly_change_pct is not none %}
+                            <span class="{{ 'text-success' if m.monthly_change_pct >= 0 else 'text-danger' }}">
+                                {{ "%+.2f"|format(m.monthly_change_pct) }}%
+                            </span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary">{{ m.snapshot_count }}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary">{{ m.spending_count }}</span>
+                    </td>
+                    <td class="text-end">
+                        <a href="/monthly-update/{{ m.month }}" class="btn btn-sm btn-outline-primary">View / Edit</a>
+                        <button class="btn btn-sm btn-outline-danger"
+                                onclick="deleteMonth('{{ m.month }}', this)">Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <p class="text-muted mb-3">No monthly data found. Add your first month or import a CSV to get started.</p>
+        <button class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#addMonthModal">
+            + Add New Month
+        </button>
+        <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import CSV</a>
+    </div>
+</div>
+{% endif %}
+
+<!-- Add New Month Modal -->
+<div class="modal fade" id="addMonthModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Month</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label for="newMonthInput" class="form-label">Select Month</label>
+                <input type="month" class="form-control" id="newMonthInput">
+                <div class="form-check mt-3">
+                    <input class="form-check-input" type="checkbox" id="copyPrevMonth" checked>
+                    <label class="form-check-label" for="copyPrevMonth">
+                        Copy balances from most recent month
+                    </label>
+                </div>
+                <div id="addMonthError" class="text-danger mt-2 d-none"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="initMonthBtn">Initialize Month</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('initMonthBtn').addEventListener('click', function () {
+    const monthVal = document.getElementById('newMonthInput').value;
+    const copyPrev = document.getElementById('copyPrevMonth').checked;
+    const errEl = document.getElementById('addMonthError');
+    errEl.classList.add('d-none');
+
+    if (!monthVal) {
+        errEl.textContent = 'Please select a month.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+
+    this.disabled = true;
+    this.textContent = 'Initializing...';
+
+    const btn = this;
+    fetch('/api/months/init', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({month: monthVal})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.redirect) {
+            errEl.textContent = data.error || 'Unexpected error.';
+            errEl.classList.remove('d-none');
+            btn.disabled = false;
+            btn.textContent = 'Initialize Month';
+            return;
+        }
+        if (!copyPrev) {
+            window.location.href = data.redirect;
+            return;
+        }
+        btn.textContent = 'Copying balances...';
+        // Copy is best-effort: silently proceed on failure (e.g. first-ever month)
+        fetch('/api/months/' + monthVal + '/copy-from-previous', {method: 'POST'})
+            .finally(() => { window.location.href = data.redirect; });
+    })
+    .catch(() => {
+        errEl.textContent = 'Network error. Please try again.';
+        errEl.classList.remove('d-none');
+        btn.disabled = false;
+        btn.textContent = 'Initialize Month';
+    });
+});
+
+function deleteMonth(monthStr, btn) {
+    if (!confirm('Delete ALL data for ' + monthStr + '? This cannot be undone.')) return;
+
+    btn.disabled = true;
+
+    fetch('/api/months/' + monthStr, {method: 'DELETE'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const row = document.getElementById('month-row-' + monthStr);
+            if (row) row.remove();
+        } else {
+            alert('Error: ' + (data.error || 'Delete failed.'));
+            btn.disabled = false;
+        }
+    })
+    .catch(() => {
+        alert('Network error. Please try again.');
+        btn.disabled = false;
+    });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Accounts{% endblock %}
+
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+  </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="row align-items-center mb-3">
+    <div class="col">
+        <h1>Accounts</h1>
+        <p class="text-muted mb-0">Manage your financial accounts</p>
+    </div>
+    <div class="col-auto">
+        <a href="/accounts/new" class="btn btn-primary">+ Add New Account</a>
+    </div>
+</div>
+
+<!-- Filter tabs -->
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link {% if show == 'active' %}active{% endif %}" href="/accounts?show=active">Active</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if show == 'archived' %}active{% endif %}" href="/accounts?show=archived">Archived</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if show == 'all' %}active{% endif %}" href="/accounts?show=all">All</a>
+    </li>
+</ul>
+
+<div class="card">
+    <div class="card-body p-0">
+        {% if accounts %}
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                {% macro sort_link(col, label) %}
+                {% set new_dir = 'desc' if (sort == col and dir == 'asc') else 'asc' %}
+                <a href="?show={{ show }}&sort={{ col }}&dir={{ new_dir }}" class="text-decoration-none text-dark">{{ label }}{% if sort == col %} {% if dir == 'desc' %}↓{% else %}↑{% endif %}{% endif %}</a>
+                {% endmacro %}
+                <tr>
+                    <th>{{ sort_link('name', 'Account Name') }}</th>
+                    <th>{{ sort_link('type', 'Type') }}</th>
+                    <th>{{ sort_link('category', 'Category') }}</th>
+                    <th>{{ sort_link('tax_status', 'Tax Status') }}</th>
+                    <th>{{ sort_link('institution', 'Institution') }}</th>
+                    <th class="text-center">Liquid</th>
+                    <th class="text-center">Net Worth</th>
+                    <th class="text-center">{{ sort_link('balance', 'Balance') }}</th>
+                    {% if show == 'all' %}<th class="text-center">Status</th>{% endif %}
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in accounts %}
+                <tr id="account-row-{{ a.id }}">
+                    <td class="fw-semibold">
+                        {% if a.display_color %}
+                        <span class="me-1" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{{ a.display_color }}"></span>
+                        {% endif %}
+                        <a href="/accounts/{{ a.id }}/history" class="text-decoration-none text-reset">{{ a.name }}</a>
+                        {% if a.account_number %}<span class="text-muted small ms-1">••{{ a.account_number }}</span>{% endif %}
+                        {% if a.paired_liability_id and a.paired_liability_id in account_names %}
+                        <br><span class="text-muted small">⇄ {{ account_names[a.paired_liability_id] }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if a.account_type == 'asset' %}bg-success{% else %}bg-danger{% endif %}">
+                            {{ a.account_type|upper }}
+                        </span>
+                    </td>
+                    <td>{{ a.category.replace('_', ' ').title() }}</td>
+                    <td>
+                        {% if a.tax_status == 'taxable' %}
+                            <span class="badge bg-warning text-dark">Taxable</span>
+                        {% elif a.tax_status == 'tax_deferred' %}
+                            <span class="badge bg-info text-dark">Tax-Deferred</span>
+                        {% elif a.tax_status == 'tax_free' %}
+                            <span class="badge bg-success">Tax-Free</span>
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ a.institution or '—' }}</td>
+                    <td class="text-center">
+                        {% if a.is_liquid %}<span class="badge bg-info">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if a.include_in_networth %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}
+                    </td>
+                    <td class="text-center text-muted small">
+                        {% if a.id in latest_balances %}${{ "{:,.0f}".format(latest_balances[a.id]) }}{% else %}—{% endif %}
+                        {% if a.category in investment_cats %}
+                          {% set hv = holdings_values.get(a.id) %}
+                          {% set snap = latest_balances.get(a.id) %}
+                          {% if hv is not none and snap and snap != 0 and ((hv - snap|float)|abs / snap|float|abs) > 0.01 %}
+                          <span class="text-warning ms-1"
+                                data-bs-toggle="tooltip"
+                                title="Holdings value ${{ '{:,.0f}'.format(hv) }} differs from snapshot ${{ '{:,.0f}'.format(snap) }} — consider updating holdings">⚠</span>
+                          {% endif %}
+                        {% endif %}
+                    </td>
+                    {% if show == 'all' %}
+                    <td class="text-center">
+                        <span class="badge {% if a.is_active %}bg-success{% else %}bg-secondary{% endif %}" id="status-badge-{{ a.id }}">
+                            {% if a.is_active %}Active{% else %}Archived{% endif %}
+                        </span>
+                    </td>
+                    {% endif %}
+                    <td class="text-end">
+                        <a href="/accounts/{{ a.id }}/edit" class="btn btn-sm btn-outline-secondary">Edit</a>
+                        <button class="btn btn-sm btn-outline-{% if a.is_active %}warning{% else %}success{% endif %}"
+                                id="archive-btn-{{ a.id }}"
+                                onclick="toggleArchive({{ a.id }}, this)">
+                            {% if a.is_active %}Archive{% else %}Restore{% endif %}
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-5">
+            <p class="text-muted mb-3">
+                {% if show == 'archived' %}No archived accounts.
+                {% elif show == 'all' %}No accounts found. Import CSV data or add an account.
+                {% else %}No active accounts. <a href="/accounts?show=all">View all accounts</a>.
+                {% endif %}
+            </p>
+            <a href="/accounts/new" class="btn btn-primary me-2">+ Add New Account</a>
+            <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import Data</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        new bootstrap.Tooltip(el);
+    });
+});
+
+function toggleArchive(accountId, btn) {
+    btn.disabled = true;
+    fetch('/accounts/' + accountId + '/archive', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            const badge = document.getElementById('status-badge-' + accountId);
+            badge.textContent = data.is_active ? 'Active' : 'Archived';
+            badge.className = 'badge ' + (data.is_active ? 'bg-success' : 'bg-secondary');
+            btn.textContent = data.is_active ? 'Archive' : 'Restore';
+            btn.className = 'btn btn-sm btn-outline-' + (data.is_active ? 'warning' : 'success');
+        }
+        btn.disabled = false;
+    })
+    .catch(() => { btn.disabled = false; });
+}
+</script>
+{% endblock %}

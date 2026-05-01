@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Import Data{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>Import CSV Data</h1>
+        <p class="text-muted">Import historical financial data from a CSV file.</p>
+    </div>
+</div>
+
+{# ── Onboarding explainer (shown when arriving from welcome banner) ── #}
+{% if from_onboarding %}
+<div class="alert alert-info mb-4">
+    <h5 class="alert-heading">Restoring from a Ledger export?</h5>
+    <p class="mb-2">Upload the <code>ledger_*.csv</code> file exported from your previous instance. All accounts, balances, and history will be restored automatically — no manual setup needed.</p>
+    <p class="mb-2">Don't have an export? You can also use the generic import template to bring in historical data manually.</p>
+    <a href="{{ url_for('main.import_template') }}" class="btn btn-sm btn-outline-secondary">Download Generic Template</a>
+</div>
+{% endif %}
+
+{# ── Error banner ── #}
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% endif %}
+
+{# ── Results panel (shown after a POST) ── #}
+{% if results %}
+<div class="row mb-4">
+    <div class="col-12">
+        {% if results.success %}
+        <div class="alert alert-success"><strong>Import successful!</strong></div>
+        {% else %}
+        <div class="alert alert-warning"><strong>Import completed with issues.</strong></div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header">Import Summary</div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col">
+                        <div class="fs-3 fw-bold text-primary">{{ results.accounts_created }}</div>
+                        <div class="text-muted small">Accounts Created</div>
+                    </div>
+                    <div class="col">
+                        <div class="fs-3 fw-bold text-success">{{ results.snapshots_imported }}</div>
+                        <div class="text-muted small">Balance Snapshots</div>
+                    </div>
+                    <div class="col">
+                        <div class="fs-3 fw-bold text-info">{{ results.spending_imported }}</div>
+                        <div class="text-muted small">Spending Entries</div>
+                    </div>
+                    <div class="col">
+                        <div class="fs-3 fw-bold text-secondary">{{ results.metrics_imported }}</div>
+                        <div class="text-muted small">Metric Records</div>
+                    </div>
+                </div>
+
+                {% if results.warnings %}
+                <hr>
+                <p class="mb-1 fw-semibold">Warnings:</p>
+                <ul class="mb-0">
+                    {% for w in results.warnings %}
+                    <li class="text-warning-emphasis">{{ w }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+
+                {% if results.errors %}
+                <hr>
+                <p class="mb-1 fw-semibold">Errors:</p>
+                <ul class="mb-0">
+                    {% for e in results.errors %}
+                    <li class="text-danger">{{ e }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ── Upload form + format guide ── #}
+<div class="row mb-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">Upload CSV File</div>
+            <div class="card-body">
+                <form method="POST" enctype="multipart/form-data" id="importForm">
+                    <div class="mb-3">
+                        <label for="csv_file" class="form-label">Select CSV file</label>
+                        <input class="form-control" type="file" id="csv_file"
+                               name="csv_file" accept=".csv" required>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" id="previewBtn">Preview</button>
+                        <button type="submit" class="btn btn-primary" id="importBtn">Import</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {# Preview results (shown dynamically) #}
+        <div class="card mt-3 d-none" id="previewCard">
+            <div class="card-header">Import Preview</div>
+            <div class="card-body" id="previewBody"></div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Expected CSV Format</span>
+                <a href="/import/template" class="btn btn-sm btn-outline-secondary">Download Template</a>
+            </div>
+            <div class="card-body">
+                <p class="small mb-2">
+                    First column: category name. Remaining columns: month headers.
+                </p>
+                <pre class="bg-light p-2 rounded small mb-2" style="font-size:0.72rem">Category,Jan '24,Feb '24,...
+Cash,"$180,000","$182,000",...
+Retirement,"$620,000","$625,000",...
+Investments,"$1,100,000","$1,110,000",...
+Real Estate,"$780,000","$780,000",...
+Mortgage,"$570,000","$568,000",...
+Income,"$10,000","$10,000",...
+Expenses,"$8,000","$7,500",...
+Net Worth,"$2,100,000",...
+Net Worth Non-RE,"$1,900,000",...
+% Change,1.2%,...
+Save Rate,20%,...</pre>
+                <p class="small text-muted mb-0">
+                    <strong>Account rows:</strong> Cash, Retirement, Investments, Real Estate, Mortgage<br>
+                    <strong>Spending rows:</strong> Income, Expenses<br>
+                    <strong>Calculated (optional):</strong> Net Worth, Net Worth Non-RE, % Change, Save Rate<br>
+                    Month headers accepted: <code>Jan '24</code>, <code>Jan 2024</code>,
+                    <code>January 2024</code>, <code>2024-01</code>
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Import history ── #}
+{% if recent_logs %}
+<div class="row">
+    <div class="col-12">
+        <h4>Recent Imports</h4>
+        <table class="table table-sm table-hover">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>File</th>
+                    <th>Records</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in recent_logs %}
+                <tr>
+                    <td class="text-nowrap">{{ log.import_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                    <td>{{ log.file_name }}</td>
+                    <td>{{ log.records_imported }}</td>
+                    <td>
+                        {% if log.status == 'success' %}
+                        <span class="badge bg-success">success</span>
+                        {% elif log.status == 'partial' %}
+                        <span class="badge bg-warning text-dark">partial</span>
+                        {% else %}
+                        <span class="badge bg-danger">{{ log.status }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('previewBtn').addEventListener('click', function () {
+    const fileInput = document.getElementById('csv_file');
+    if (!fileInput.files.length) {
+        alert('Please select a CSV file first.');
+        return;
+    }
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = 'Analyzing...';
+
+    const formData = new FormData();
+    formData.append('csv_file', fileInput.files[0]);
+
+    fetch('/api/import/preview', { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+        renderPreview(data);
+        btn.disabled = false;
+        btn.textContent = 'Preview';
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.textContent = 'Preview';
+        alert('Preview failed. Please try again.');
+    });
+});
+
+function renderPreview(data) {
+    const card = document.getElementById('previewCard');
+    const body = document.getElementById('previewBody');
+    card.classList.remove('d-none');
+
+    if (!data.success) {
+        body.innerHTML = '<div class="alert alert-danger mb-0">' +
+            (data.errors || ['Unknown error']).map(e => '<div>' + e + '</div>').join('') +
+            '</div>';
+        return;
+    }
+
+    let html = '<div class="row text-center mb-3">' +
+        stat(data.accounts_created, 'Accounts to Create', 'primary') +
+        stat(data.snapshots_imported, 'Balance Snapshots', 'success') +
+        stat(data.spending_imported, 'Spending Entries', 'info') +
+        stat(data.months.length, 'Months', 'secondary') +
+        '</div>';
+
+    if (data.accounts_to_create && data.accounts_to_create.length) {
+        html += '<p class="mb-1"><strong>New accounts:</strong> ' + data.accounts_to_create.join(', ') + '</p>';
+    }
+    if (data.accounts_existing && data.accounts_existing.length) {
+        html += '<p class="mb-1"><strong>Existing accounts (will update):</strong> ' + data.accounts_existing.join(', ') + '</p>';
+    }
+    if (data.months && data.months.length) {
+        html += '<p class="mb-1"><strong>Months affected:</strong> ' + data.months.join(', ') + '</p>';
+    }
+    if (data.warnings && data.warnings.length) {
+        html += '<hr><p class="mb-1 fw-semibold text-warning">Warnings:</p><ul class="mb-0">' +
+            data.warnings.map(w => '<li>' + w + '</li>').join('') + '</ul>';
+    }
+
+    html += '<hr><p class="text-muted small mb-0">Click <strong>Import</strong> to commit these changes.</p>';
+    body.innerHTML = html;
+}
+
+function stat(value, label, color) {
+    return '<div class="col"><div class="fs-4 fw-bold text-' + color + '">' + value +
+        '</div><div class="text-muted small">' + label + '</div></div>';
+}
+</script>
+{% endblock %}

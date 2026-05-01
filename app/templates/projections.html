@@ -1,0 +1,1439 @@
+{% extends "base.html" %}
+
+{% block title %}Projections{% endblock %}
+
+{% block content %}
+<div class="row align-items-center mb-4">
+    <div class="col">
+        <h1 class="mb-0">Projections</h1>
+        <p class="text-muted mb-0">Growth forecasts and path to financial independence</p>
+    </div>
+</div>
+
+{% if not has_data %}
+<div class="alert alert-info">
+    No financial data found. Add accounts and monthly snapshots to generate projections.
+</div>
+{% else %}
+
+<!-- Tab navigation -->
+<ul class="nav nav-tabs mb-4" id="projectionsTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="fi-tab" data-bs-toggle="tab"
+                data-bs-target="#fi-pane" type="button" role="tab">
+            Path to FI
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="growth-tab" data-bs-toggle="tab"
+                data-bs-target="#growth-pane" type="button" role="tab">
+            Growth Projections
+        </button>
+    </li>
+</ul>
+
+<div class="tab-content">
+
+<!-- =====================================================================
+     TAB 1: GROWTH PROJECTIONS
+     ===================================================================== -->
+<div class="tab-pane fade" id="growth-pane" role="tabpanel">
+
+{% set category_labels = {
+    'cash': 'Cash', 'checking': 'Checking', 'savings': 'Savings',
+    'retirement': 'Retirement', 'investment': 'Investments',
+    'brokerage': 'Brokerage', '401k': '401k', 'ira': 'IRA',
+    'roth_ira': 'Roth IRA', 'hsa': 'HSA', '529': '529',
+    'real_estate': 'Real Estate', 'vehicle': 'Vehicle',
+    'mortgage': 'Mortgage', 'loan': 'Loan', 'credit_card': 'Credit Card'
+} %}
+
+<div class="row g-4">
+
+    <!-- Left panel: tabbed scenarios -->
+    <div class="col-lg-3">
+        <div class="card">
+            <!-- Scenario tab strip -->
+            <div class="card-header p-0">
+                <ul class="nav nav-tabs card-header-tabs px-2 pt-2" id="growthScenarioTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active px-3 py-2" id="gTab0"
+                                data-bs-toggle="tab" data-bs-target="#gPane0"
+                                type="button" role="tab">S1</button>
+                    </li>
+                    <li class="nav-item d-none" role="presentation" id="gTabItem1">
+                        <button class="nav-link px-3 py-2" id="gTab1"
+                                data-bs-toggle="tab" data-bs-target="#gPane1"
+                                type="button" role="tab">S2</button>
+                    </li>
+                    <li class="nav-item d-none" role="presentation" id="gTabItem2">
+                        <button class="nav-link px-3 py-2" id="gTab2"
+                                data-bs-toggle="tab" data-bs-target="#gPane2"
+                                type="button" role="tab">S3</button>
+                    </li>
+                    <li class="nav-item" role="presentation" id="gAddTabItem">
+                        <button class="nav-link px-3 py-2 text-primary" id="gAddScenarioBtn"
+                                type="button">+</button>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="tab-content" style="max-height:85vh;overflow-y:auto;">
+            {% set g_defaults = [('Baseline', 0), ('Scenario 2', 1), ('Scenario 3', 2)] %}
+            {% for label, i in g_defaults %}
+            <div class="tab-pane fade {% if i == 0 %}show active{% endif %} p-3"
+                 id="gPane{{ i }}" role="tabpanel">
+
+                <!-- Scenario name -->
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">Scenario Name</label>
+                    <input type="text" class="form-control form-control-sm g-scenario-name"
+                           data-index="{{ i }}" value="{{ label }}">
+                </div>
+
+                <!-- Horizon, stacked, age -->
+                <div class="mb-2">
+                    <label class="form-label small fw-semibold">Horizon</label>
+                    <select class="form-select form-select-sm g-horizon" data-index="{{ i }}">
+                        <option value="5">5 years</option>
+                        <option value="10">10 years</option>
+                        <option value="15">15 years</option>
+                        <option value="20" selected>20 years</option>
+                        <option value="30">30 years</option>
+                    </select>
+                </div>
+
+                <div class="mb-2">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input g-stacked" type="checkbox"
+                               data-index="{{ i }}" id="gStackedToggle{{ i }}">
+                        <label class="form-check-label small" for="gStackedToggle{{ i }}">Stacked area view</label>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label small">Current Age <span class="text-muted">(optional)</span></label>
+                    <input type="number" class="form-control form-control-sm g-current-age"
+                           data-index="{{ i }}" placeholder="e.g. 35" min="18" max="80">
+                    <div class="form-text">Sets the "At Retirement" callout (age 65).</div>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- Income & Savings (collapsible) -->
+                <div class="mb-2">
+                    <button class="btn btn-outline-secondary btn-sm w-100 text-start" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#gIncome{{ i }}">
+                        <span class="fw-semibold">Income &amp; Savings</span>
+                        <span class="text-muted ms-1" style="font-size:.75rem;">▾</span>
+                    </button>
+                    <div class="collapse mt-2" id="gIncome{{ i }}">
+
+                        <div class="mb-2">
+                            <div class="btn-group btn-group-sm w-100" role="group">
+                                <input type="radio" class="btn-check g-income-mode"
+                                       name="gMode{{ i }}" data-index="{{ i }}"
+                                       id="gModeGross{{ i }}" value="gross" checked>
+                                <label class="btn btn-outline-secondary" for="gModeGross{{ i }}">Gross</label>
+                                <input type="radio" class="btn-check g-income-mode"
+                                       name="gMode{{ i }}" data-index="{{ i }}"
+                                       id="gModeNet{{ i }}" value="net">
+                                <label class="btn btn-outline-secondary" for="gModeNet{{ i }}">Net income</label>
+                            </div>
+                        </div>
+
+                        <!-- Gross mode fields -->
+                        <div class="g-gross-fields" data-index="{{ i }}">
+                            <div class="mb-2">
+                                <label class="form-label small">Gross Annual Income</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" class="form-control g-gross-income"
+                                           data-index="{{ i }}" placeholder="0" step="1000" min="0">
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small">Filing Status</label>
+                                <select class="form-select form-select-sm g-filing-status" data-index="{{ i }}">
+                                    <option value="mfj">Married Filing Jointly</option>
+                                    <option value="single">Single</option>
+                                </select>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label small d-flex align-items-center gap-1">
+                                    Marginal Tax Rate
+                                    <span class="badge bg-secondary g-tax-badge" data-index="{{ i }}"
+                                          style="font-size:.65rem;">US federal rate</span>
+                                </label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" class="form-control g-tax-rate"
+                                           data-index="{{ i }}" step="0.5" min="0" max="60" placeholder="0">
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Net mode fields (hidden by default) -->
+                        <div class="g-net-fields d-none" data-index="{{ i }}">
+                            <div class="mb-2">
+                                <label class="form-label small">Net Annual Income</label>
+                                <div class="input-group input-group-sm">
+                                    <span class="input-group-text">$</span>
+                                    <input type="number" class="form-control g-net-income"
+                                           data-index="{{ i }}" placeholder="0" step="1000" min="0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Save rate -->
+                        <div class="mb-2">
+                            <div class="d-flex justify-content-between align-items-baseline mb-1">
+                                <label class="form-label small mb-0">Save Rate</label>
+                                <span class="fw-semibold g-save-rate-display"
+                                      data-index="{{ i }}">{{ avg_save_rate | int }}%</span>
+                            </div>
+                            <input type="range" class="form-range g-save-rate"
+                                   data-index="{{ i }}" min="0" max="100" step="1"
+                                   value="{{ avg_save_rate | int }}">
+                        </div>
+
+                        <!-- Distribution -->
+                        <div class="mb-2">
+                            <label class="form-label small">Distribution</label>
+                            <select class="form-select form-select-sm g-distribution" data-index="{{ i }}">
+                                <option value="split">Invest/Save split</option>
+                                <option value="pro_rata">Match current allocation</option>
+                                <option value="all_invested">All invested</option>
+                                <option value="all_cash">All cash/savings</option>
+                            </select>
+                        </div>
+
+                        <!-- Invest/cash split slider (split mode) -->
+                        <div class="mb-2 g-invest-split-row" data-index="{{ i }}">
+                            <div class="d-flex justify-content-between align-items-baseline mb-1">
+                                <label class="form-label small mb-0">Invested</label>
+                                <span class="fw-semibold g-invest-pct-display"
+                                      data-index="{{ i }}">80%</span>
+                            </div>
+                            <input type="range" class="form-range g-invest-pct"
+                                   data-index="{{ i }}" min="0" max="100" step="5" value="80">
+                            <div class="d-flex justify-content-between text-muted"
+                                 style="font-size:.7rem;">
+                                <span>All cash</span><span>All invested</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- Category growth rates -->
+                <p class="small text-muted mb-2">Annual growth rate (%) per category. Defaults from historical CAGR.</p>
+                {% for cat, bal in current_by_category.items() %}
+                {% if cat != 'mortgage' %}
+                <div class="mb-2">
+                    <label class="form-label small mb-1">
+                        {{ category_labels.get(cat, cat.replace('_', ' ').title()) }}
+                        <span class="text-muted">({{ "${:,.0f}".format(bal) }})</span>
+                    </label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control g-category-rate"
+                               data-category="{{ cat }}" data-index="{{ i }}"
+                               value="{{ default_rates_pct.get(cat, 0) }}"
+                               step="0.1" min="-20" max="50">
+                        <span class="input-group-text">%</span>
+                    </div>
+                </div>
+                {% endif %}
+                {% endfor %}
+
+                <!-- Mortgage details (collapsed) -->
+                {% if 'mortgage' in current_by_category %}
+                <div class="mt-2 mb-2">
+                    <button class="btn btn-outline-secondary btn-sm w-100" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#gMortgage{{ i }}">
+                        Mortgage Details
+                    </button>
+                    <div class="collapse mt-2" id="gMortgage{{ i }}">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Interest Rate (%)</label>
+                            <input type="number" class="form-control form-control-sm g-mortgage-rate"
+                                   data-index="{{ i }}" value="6.5" step="0.1" min="0" max="20">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Remaining Months</label>
+                            <input type="number" class="form-control form-control-sm g-mortgage-months"
+                                   data-index="{{ i }}" value="360" step="1" min="1" max="360">
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input g-use-amort" type="checkbox"
+                                   data-index="{{ i }}" id="gUseAmort{{ i }}" checked>
+                            <label class="form-check-label small" for="gUseAmort{{ i }}">
+                                Use amortization schedule
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <hr class="my-2">
+
+                <!-- Planned Expenses -->
+                <div class="mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="small fw-semibold">Planned Expenses</span>
+                        <button type="button"
+                                class="btn btn-outline-primary btn-sm py-0 g-add-expense"
+                                data-index="{{ i }}">+ Add</button>
+                    </div>
+                    <div class="g-expense-list" data-index="{{ i }}"></div>
+                </div>
+
+                {% if i > 0 %}
+                <div class="text-end mt-3 pt-2 border-top">
+                    <button type="button"
+                            class="btn btn-sm btn-outline-danger g-remove-scenario-btn"
+                            data-index="{{ i }}">Remove Scenario</button>
+                </div>
+                {% endif %}
+
+            </div><!-- /gPane{{ i }} -->
+            {% endfor %}
+            </div><!-- /tab-content -->
+        </div><!-- /card -->
+    </div><!-- /left panel -->
+
+    <!-- Right panel: callouts + chart -->
+    <div class="col-lg-9">
+
+        <!-- Callout cards (reflect active scenario) -->
+        <div class="row g-3 mb-3" id="growthCallouts">
+            <div class="col-6 col-md-3">
+                <div class="card text-center">
+                    <div class="card-body py-2">
+                        <div class="fw-bold fs-5" id="callout5yr">—</div>
+                        <div class="text-muted small">In 5 years</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center">
+                    <div class="card-body py-2">
+                        <div class="fw-bold fs-5" id="callout10yr">—</div>
+                        <div class="text-muted small">In 10 years</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center">
+                    <div class="card-body py-2">
+                        <div class="fw-bold fs-5" id="callout20yr">—</div>
+                        <div class="text-muted small">In 20 years</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="card text-center">
+                    <div class="card-body py-2">
+                        <div class="fw-bold fs-5" id="calloutRetirement">—</div>
+                        <div class="text-muted small" id="calloutRetirementLabel">At Retirement</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="growthContribNote" class="text-muted small mb-3 d-none">
+            Including <strong id="growthContribAmount"></strong>/mo in savings contributions.
+        </div>
+
+        <div id="growthChart" style="height:420px;"></div>
+
+        <div id="mortgagePayoffNote" class="text-muted small mt-2 d-none">
+            Mortgage payoff: <strong id="mortgagePayoffDate"></strong>
+        </div>
+    </div><!-- /right panel -->
+
+</div>
+</div><!-- /growth-pane -->
+
+
+<!-- =====================================================================
+     TAB 2: PATH TO FI
+     ===================================================================== -->
+<div class="tab-pane fade show active" id="fi-pane" role="tabpanel">
+
+    <div class="row g-4">
+
+        <!-- Inputs panel with scenario tabs -->
+        <div class="col-lg-4">
+            <p class="text-muted small mb-2">
+                Adjust per-category growth rates on the
+                <a href="#" id="switchToGrowthLink" class="text-decoration-none">Growth Projections</a> tab.
+            </p>
+            <div class="card">
+                <!-- Scenario tab strip -->
+                <div class="card-header p-0">
+                    <ul class="nav nav-tabs card-header-tabs px-2 pt-2" id="scenarioTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active px-3 py-2" id="sTab0"
+                                    data-bs-toggle="tab" data-bs-target="#sPane0"
+                                    type="button" role="tab">S1</button>
+                        </li>
+                        <li class="nav-item d-none" role="presentation" id="sTabItem1">
+                            <button class="nav-link px-3 py-2" id="sTab1"
+                                    data-bs-toggle="tab" data-bs-target="#sPane1"
+                                    type="button" role="tab">S2</button>
+                        </li>
+                        <li class="nav-item d-none" role="presentation" id="sTabItem2">
+                            <button class="nav-link px-3 py-2" id="sTab2"
+                                    data-bs-toggle="tab" data-bs-target="#sPane2"
+                                    type="button" role="tab">S3</button>
+                        </li>
+                        <li class="nav-item" role="presentation" id="addTabItem">
+                            <button class="nav-link px-3 py-2 text-primary" id="addScenarioBtn"
+                                    type="button">+</button>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="tab-content">
+                    {% set defaults = [
+                        ('Baseline', 0),
+                        ('Scenario 2', 1),
+                        ('Scenario 3', 2),
+                    ] %}
+                    {% for label, i in defaults %}
+                    <div class="tab-pane fade {% if i == 0 %}show active{% endif %} p-3"
+                         id="sPane{{ i }}" role="tabpanel">
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Scenario Name</label>
+                            <input type="text" class="form-control form-control-sm scenario-name"
+                                   data-index="{{ i }}" value="{{ label }}">
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Target Annual Spending</label>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control scenario-spending"
+                                       data-index="{{ i }}" value="80000" step="1000" min="0">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold d-flex justify-content-between">
+                                Safe Withdrawal Rate
+                                <span class="text-primary" id="swrDisplay{{ i }}">4.0%</span>
+                            </label>
+                            <input type="range" class="form-range scenario-swr"
+                                   data-index="{{ i }}" min="3" max="5" step="0.5" value="4"
+                                   oninput="document.getElementById('swrDisplay{{ i }}').textContent=this.value+'%'">
+                            <div class="d-flex justify-content-between text-muted" style="font-size:0.7rem;">
+                                <span>3%</span><span>3.5%</span><span>4%</span><span>4.5%</span><span>5%</span>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Expected Growth Rate (%/yr)</label>
+                            <input type="number" class="form-control form-control-sm scenario-growth"
+                                   data-index="{{ i }}" value="{{ portfolio_cagr_pct or 7.0 }}" step="0.5" min="0" max="12">
+                            {% if i == 0 %}
+                            <div class="form-text">Historical portfolio CAGR: {{ portfolio_cagr_pct }}%</div>
+                            {% endif %}
+                            <div class="scenario-growth-warn small mt-1 d-none" data-index="{{ i }}" style="color:#fd7e14;"></div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Monthly Savings ($)</label>
+                            <input type="number" class="form-control form-control-sm scenario-savings"
+                                   data-index="{{ i }}"
+                                   value="{{ "{:.0f}".format(default_monthly_savings) }}"
+                                   step="100" min="0">
+                        </div>
+
+                        {% if i == 0 %}
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Current Age (optional)</label>
+                            <input type="number" id="currentAge" class="form-control form-control-sm"
+                                   placeholder="e.g. 35" min="18" max="80">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Retirement Age</label>
+                            <input type="number" id="retirementAge" class="form-control form-control-sm"
+                                   value="65" min="40" max="80">
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="conservativeToggle">
+                                <label class="form-check-label small" for="conservativeToggle">Show conservative case</label>
+                            </div>
+                            <div class="text-muted" style="font-size:.72rem;">growth −2% / SWR −0.5%</div>
+                        </div>
+                        {% endif %}
+
+                        {% if i > 0 %}
+                        <div class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-scenario-btn"
+                                    data-index="{{ i }}">Remove</button>
+                        </div>
+                        {% endif %}
+
+                    </div><!-- /sPane{{ i }} -->
+                    {% endfor %}
+                </div><!-- /tab-content -->
+            </div><!-- /card -->
+        </div><!-- /inputs -->
+
+        <!-- Chart + callouts + sensitivity -->
+        <div class="col-lg-8">
+
+            <!-- FI date callouts (populated by JS) -->
+            <div class="row g-3 mb-4" id="fiCallouts"></div>
+
+            <!-- Progress bar — always anchored to Scenario 1 baseline -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold">Progress to FI
+                            <span class="text-muted fw-normal small" id="progressLockNote">(Scenario 1 baseline)</span>
+                        </span>
+                        <span class="text-muted small">
+                            Investable NW: <strong id="fiCurrentNW">${{ "{:,.0f}".format(current_investable_nw) }}</strong>
+                            &nbsp;/&nbsp;
+                            FI Number: <strong id="fiTargetDisplay">—</strong>
+                        </span>
+                    </div>
+                    <div class="progress" style="height:20px;">
+                        <div id="fiProgressBar" class="progress-bar bg-success" role="progressbar"
+                             style="width:0%"></div>
+                    </div>
+                    <div class="text-end text-muted small mt-1" id="fiProgressPct">—</div>
+                </div>
+            </div>
+
+            <!-- #61 Coast FI -->
+            <div class="card mb-3" id="coastFiCard" style="display:none!important;">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-semibold small">Coast FI
+                            <span data-bs-toggle="tooltip" data-bs-placement="top"
+                                  title="If you stop contributing today, your portfolio grows to your FI number by retirement at your expected growth rate."
+                                  style="cursor:help;">ⓘ</span>
+                        </span>
+                        <span class="text-muted small">Target: <strong id="coastFiTarget">—</strong></span>
+                    </div>
+                    <div class="progress" style="height:10px;">
+                        <div id="coastFiBar" class="progress-bar bg-info" style="width:0%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted small mt-1">
+                        <span id="coastFiPct">—</span>
+                        <span id="coastFiMsg"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="fiChart" style="height:380px;" class="mb-2"></div>
+            <small class="text-muted d-block mb-4">Projections assume constant real returns and do not account for inflation, sequence-of-returns risk, or taxes.</small>
+
+            <!-- Sensitivity table — follows active scenario -->
+            <div class="card">
+                <div class="card-header fw-semibold">
+                    Sensitivity: Years to FI
+                    <span class="text-muted small fw-normal ms-2" id="sensLabel">SWR × Annual Spending (Scenario 1)</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0" id="sensitivityTable">
+                            <thead><tr id="sensHeaderRow"></tr></thead>
+                            <tbody id="sensBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /chart -->
+    </div>
+</div><!-- /fi-pane -->
+
+</div><!-- /tab-content -->
+{% endif %}
+
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+// Initialize Bootstrap tooltips
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+});
+
+// ─── Data from server ───────────────────────────────────────────────────────
+const HISTORICAL_LABELS = {{ historical_labels | tojson }};
+const HISTORICAL_NW     = {{ historical_nw | tojson }};
+const TODAY_STR         = {{ today_str | tojson }};
+const CURRENT_NW        = {{ current_investable_nw }};
+
+// ─── Theme helpers ───────────────────────────────────────────────────────────
+function isDark() { return document.documentElement.getAttribute('data-bs-theme') === 'dark'; }
+function axisColor() { return isDark() ? '#a1a1aa' : '#444'; }
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+function fmt(v) {
+    if (v == null || isNaN(v)) return '—';
+    if (Math.abs(v) >= 1_000_000_000_000)
+        return '$' + (v / 1_000_000_000_000).toFixed(1) + 'T';
+    if (Math.abs(v) >= 1_000_000_000)
+        return '$' + (v / 1_000_000_000).toFixed(1) + 'B';
+    if (Math.abs(v) >= 1_000_000)
+        return '$' + (v / 1_000_000).toFixed(1) + 'M';
+    return '$' + Math.round(v).toLocaleString();
+}
+
+function debounce(fn, ms) {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+// ─── GROWTH TAB ──────────────────────────────────────────────────────────────
+const GROWTH_SCENARIO_COLORS = ['#0d6efd', '#198754', '#fd7e14'];
+let growthChart = null;
+const activeGrowthScenarios = new Set([0]);
+let activeGrowthTabIndex = 0;
+
+// 2025 U.S. federal marginal tax brackets
+const TAX_BRACKETS = {
+    mfj:    [[23850,0.10],[96950,0.12],[206700,0.22],[394600,0.24],[501050,0.32],[751600,0.35],[Infinity,0.37]],
+    single: [[11925,0.10],[48475,0.12],[103350,0.22],[197300,0.24],[250525,0.32],[626350,0.35],[Infinity,0.37]],
+};
+
+function autoTaxRate(grossIncome, filingStatus) {
+    const brackets = TAX_BRACKETS[filingStatus] || TAX_BRACKETS.mfj;
+    let rate = 0.10;
+    for (const [threshold, r] of brackets) {
+        rate = r;
+        if (grossIncome <= threshold) break;
+    }
+    return Math.round(rate * 1000) / 10; // e.g. 22.0
+}
+
+function updateAutoTaxRate(idx) {
+    const badgeEl = document.querySelector(`.g-tax-badge[data-index="${idx}"]`);
+    if (!badgeEl || badgeEl.dataset.custom === '1') return;
+    const gross = parseFloat(document.querySelector(`.g-gross-income[data-index="${idx}"]`)?.value) || 0;
+    const status = document.querySelector(`.g-filing-status[data-index="${idx}"]`)?.value || 'mfj';
+    const taxEl = document.querySelector(`.g-tax-rate[data-index="${idx}"]`);
+    if (taxEl && gross > 0) taxEl.value = autoTaxRate(gross, status);
+}
+
+function toggleIncomeMode(idx, mode) {
+    const grossFields = document.querySelector(`.g-gross-fields[data-index="${idx}"]`);
+    const netFields   = document.querySelector(`.g-net-fields[data-index="${idx}"]`);
+    if (mode === 'net') {
+        grossFields?.classList.add('d-none');
+        netFields?.classList.remove('d-none');
+    } else {
+        grossFields?.classList.remove('d-none');
+        netFields?.classList.add('d-none');
+    }
+}
+
+function toggleDistribution(idx, dist) {
+    const splitRow = document.querySelector(`.g-invest-split-row[data-index="${idx}"]`);
+    if (dist === 'split') splitRow?.classList.remove('d-none');
+    else                   splitRow?.classList.add('d-none');
+}
+
+function getIncomeData(i) {
+    const modeEl = document.querySelector(`.g-income-mode[data-index="${i}"]:checked`);
+    const mode   = modeEl ? modeEl.value : 'gross';
+    const result = {
+        mode,
+        save_rate_pct: parseFloat(document.querySelector(`.g-save-rate[data-index="${i}"]`)?.value) || 0,
+        distribution:  document.querySelector(`.g-distribution[data-index="${i}"]`)?.value || 'split',
+        invest_pct:    parseFloat(document.querySelector(`.g-invest-pct[data-index="${i}"]`)?.value) || 80,
+    };
+    if (mode === 'gross') {
+        result.gross_annual  = parseFloat(document.querySelector(`.g-gross-income[data-index="${i}"]`)?.value) || 0;
+        result.tax_rate_pct  = parseFloat(document.querySelector(`.g-tax-rate[data-index="${i}"]`)?.value) || 0;
+    } else {
+        result.net_annual = parseFloat(document.querySelector(`.g-net-income[data-index="${i}"]`)?.value) || 0;
+    }
+    return result;
+}
+
+function getExpensesData(i) {
+    const expenses = [];
+    document.querySelectorAll(`.g-expense-row[data-index="${i}"]`).forEach(row => {
+        const name   = row.querySelector('.g-expense-name')?.value  || 'Expense';
+        const amount = parseFloat(row.querySelector('.g-expense-amount')?.value) || 0;
+        const year   = parseInt(row.querySelector('.g-expense-year')?.value)     || 0;
+        if (amount > 0 && year > 0) expenses.push({name, amount, year});
+    });
+    return expenses;
+}
+
+function getGrowthPayloadForScenario(i) {
+    const rates = {};
+    document.querySelectorAll(`.g-category-rate[data-index="${i}"]`).forEach(el => {
+        rates[el.dataset.category] = parseFloat(el.value) || 0;
+    });
+    const payload = {
+        rates,
+        horizon_years: parseInt(document.querySelector(`.g-horizon[data-index="${i}"]`)?.value) || 20,
+        income:   getIncomeData(i),
+        expenses: getExpensesData(i),
+    };
+    const age = document.querySelector(`.g-current-age[data-index="${i}"]`)?.value;
+    if (age) payload.current_age = parseInt(age);
+    const useAmort = document.querySelector(`.g-use-amort[data-index="${i}"]`);
+    if (useAmort?.checked) {
+        payload.mortgage = {
+            annual_rate:      parseFloat(document.querySelector(`.g-mortgage-rate[data-index="${i}"]`)?.value)   || 6.5,
+            remaining_months: parseInt(document.querySelector(`.g-mortgage-months[data-index="${i}"]`)?.value) || 360,
+        };
+    }
+    return payload;
+}
+
+async function updateGrowthChart() {
+    const sortedIndices = [...activeGrowthScenarios].sort();
+
+    let results;
+    try {
+        results = await Promise.all(sortedIndices.map(i => {
+            const name = document.querySelector(`.g-scenario-name[data-index="${i}"]`)?.value || `Scenario ${i+1}`;
+            return fetch('/api/projections/growth', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(getGrowthPayloadForScenario(i)),
+            }).then(r => r.json()).then(body => ({...body, scenarioName: name, scenarioIndex: i}));
+        }));
+    } catch(e) { return; }
+
+    const activeResult = results.find(r => r.scenarioIndex === activeGrowthTabIndex) || results[0];
+    if (!activeResult || activeResult.error) return;
+
+    // Callouts from active scenario
+    const c = activeResult.callouts;
+    document.getElementById('callout5yr').textContent           = fmt(c.yr5);
+    document.getElementById('callout10yr').textContent          = fmt(c.yr10);
+    document.getElementById('callout20yr').textContent          = fmt(c.yr20);
+    document.getElementById('calloutRetirement').textContent    = fmt(c.retirement_nw);
+    document.getElementById('calloutRetirementLabel').textContent = c.retirement_label || 'At Retirement';
+
+    // Monthly contribution note
+    const mc = activeResult.monthly_contribution || 0;
+    const contribNote = document.getElementById('growthContribNote');
+    if (mc > 0) {
+        document.getElementById('growthContribAmount').textContent = fmt(mc);
+        contribNote.classList.remove('d-none');
+    } else {
+        contribNote.classList.add('d-none');
+    }
+
+    // Mortgage payoff note
+    const payoffNote = document.getElementById('mortgagePayoffNote');
+    if (c.mortgage_payoff_date) {
+        document.getElementById('mortgagePayoffDate').textContent = c.mortgage_payoff_date.slice(0, 7);
+        payoffNote.classList.remove('d-none');
+    } else {
+        payoffNote.classList.add('d-none');
+    }
+
+    // Build chart traces
+    const LIABILITY_CATS = new Set(['mortgage', 'credit_card', 'loan']);
+    const STACK_COLORS   = ['#198754','#fd7e14','#6f42c1','#20c997','#ffc107','#0dcaf0','#d63384'];
+    const isStacked = sortedIndices.length === 1 &&
+        document.querySelector(`.g-stacked[data-index="${activeGrowthTabIndex}"]`)?.checked;
+
+    const traces = [{
+        x: HISTORICAL_LABELS,
+        y: HISTORICAL_NW,
+        name: 'Historical',
+        type: 'scatter',
+        mode: 'lines',
+        line: {color: '#6c757d', width: 2},
+    }];
+
+    const shapes = [{
+        type: 'line', xref: 'x', yref: 'paper',
+        x0: TODAY_STR, x1: TODAY_STR, y0: 0, y1: 1,
+        line: {color: '#adb5bd', width: 1, dash: 'dot'},
+    }];
+    const annotations = [];
+
+    results.forEach(result => {
+        const gi      = result.scenarioIndex;
+        const color   = GROWTH_SCENARIO_COLORS[gi % GROWTH_SCENARIO_COLORS.length];
+        const isActive = gi === activeGrowthTabIndex;
+        const name    = result.scenarioName;
+
+        if (isStacked && result.by_category) {
+            let ci = 0;
+            for (const [cat, vals] of Object.entries(result.by_category)) {
+                if (LIABILITY_CATS.has(cat)) continue;
+                traces.push({
+                    x: result.labels, y: vals,
+                    name: cat.replace(/_/g, ' '),
+                    type: 'scatter', mode: 'lines',
+                    fill: ci === 0 ? 'tozeroy' : 'tonexty',
+                    line: {color: STACK_COLORS[ci % STACK_COLORS.length], width: 1},
+                    stackgroup: 'proj',
+                });
+                ci++;
+            }
+        } else {
+            traces.push({
+                x: result.labels,
+                y: result.total_projected,
+                name,
+                type: 'scatter', mode: 'lines',
+                line: {color, width: isActive ? 3 : 1.5, dash: isActive ? 'solid' : 'dash'},
+                opacity: isActive ? 1.0 : 0.45,
+            });
+        }
+
+        // Expense annotations (active scenario only)
+        if (isActive && Array.isArray(result.planned_expenses)) {
+            result.planned_expenses.forEach(exp => {
+                const xVal = result.labels[exp.month_offset];
+                if (!xVal) return;
+                shapes.push({
+                    type: 'line', xref: 'x', yref: 'paper',
+                    x0: xVal, x1: xVal, y0: 0, y1: 1,
+                    line: {color: '#dc3545', width: 1, dash: 'dot'},
+                });
+                annotations.push({
+                    x: xVal, y: 1, xref: 'x', yref: 'paper',
+                    text: `${exp.name}: −${fmt(exp.amount)}`,
+                    showarrow: false,
+                    font: {size: 10, color: '#dc3545'},
+                    xanchor: 'left', yanchor: 'top',
+                });
+            });
+        }
+    });
+
+    const ac = axisColor();
+    const layout = {
+        margin: {l: 80, r: 20, t: annotations.length ? 40 : 20, b: 40},
+        xaxis: {title: '', color: ac},
+        yaxis: {tickformat: '$.3s', exponentformat: 'none', color: ac},
+        font: {color: ac},
+        legend: {orientation: 'h', y: -0.15},
+        shapes, annotations,
+        hovermode: 'x unified',
+        plot_bgcolor: 'transparent',
+        paper_bgcolor: 'transparent',
+    };
+
+    if (!growthChart) {
+        Plotly.newPlot('growthChart', traces, layout, {responsive: true, displayModeBar: false});
+        growthChart = true;
+    } else {
+        Plotly.react('growthChart', traces, layout);
+    }
+}
+
+const debouncedGrowth = debounce(() => { updateGrowthChart(); saveGrowthScenarios(); }, 400);
+
+// ─── Growth scenario persistence ─────────────────────────────────────────────
+function saveGrowthScenarios() {
+    try {
+        const scenarios = [0, 1, 2].map(i => {
+            const rates = {};
+            document.querySelectorAll(`.g-category-rate[data-index="${i}"]`).forEach(el => {
+                rates[el.dataset.category] = el.value;
+            });
+            return {
+                name:             document.querySelector(`.g-scenario-name[data-index="${i}"]`)?.value,
+                horizon:          document.querySelector(`.g-horizon[data-index="${i}"]`)?.value,
+                age:              document.querySelector(`.g-current-age[data-index="${i}"]`)?.value,
+                stacked:          document.querySelector(`.g-stacked[data-index="${i}"]`)?.checked,
+                income_mode:      document.querySelector(`.g-income-mode[data-index="${i}"]:checked`)?.value,
+                gross_income:     document.querySelector(`.g-gross-income[data-index="${i}"]`)?.value,
+                filing_status:    document.querySelector(`.g-filing-status[data-index="${i}"]`)?.value,
+                tax_rate:         document.querySelector(`.g-tax-rate[data-index="${i}"]`)?.value,
+                tax_badge_custom: document.querySelector(`.g-tax-badge[data-index="${i}"]`)?.dataset.custom,
+                net_income:       document.querySelector(`.g-net-income[data-index="${i}"]`)?.value,
+                save_rate:        document.querySelector(`.g-save-rate[data-index="${i}"]`)?.value,
+                distribution:     document.querySelector(`.g-distribution[data-index="${i}"]`)?.value,
+                invest_pct:       document.querySelector(`.g-invest-pct[data-index="${i}"]`)?.value,
+                mort_rate:        document.querySelector(`.g-mortgage-rate[data-index="${i}"]`)?.value,
+                mort_months:      document.querySelector(`.g-mortgage-months[data-index="${i}"]`)?.value,
+                use_amort:        document.querySelector(`.g-use-amort[data-index="${i}"]`)?.checked,
+                rates,
+                expenses: getExpensesData(i),
+            };
+        });
+        localStorage.setItem('ledger-growth-scenarios', JSON.stringify({
+            activeGrowthScenarios: [...activeGrowthScenarios],
+            scenarios,
+        }));
+    } catch(e) {}
+}
+
+function loadGrowthScenarios() {
+    let data;
+    try { data = JSON.parse(localStorage.getItem('ledger-growth-scenarios')); } catch(e) {}
+    if (!data) return;
+
+    const setVal = (sel, val) => { const el = document.querySelector(sel); if (el && val != null) el.value = val; };
+
+    (data.scenarios || []).forEach((s, i) => {
+        if (!s) return;
+        setVal(`.g-scenario-name[data-index="${i}"]`, s.name);
+        setVal(`.g-horizon[data-index="${i}"]`, s.horizon);
+        setVal(`.g-current-age[data-index="${i}"]`, s.age);
+        const stackedEl = document.querySelector(`.g-stacked[data-index="${i}"]`);
+        if (stackedEl && s.stacked != null) stackedEl.checked = s.stacked;
+
+        if (s.income_mode) {
+            const modeEl = document.querySelector(`.g-income-mode[value="${s.income_mode}"][data-index="${i}"]`);
+            if (modeEl) { modeEl.checked = true; toggleIncomeMode(i, s.income_mode); }
+        }
+        setVal(`.g-gross-income[data-index="${i}"]`, s.gross_income);
+        setVal(`.g-filing-status[data-index="${i}"]`, s.filing_status);
+        setVal(`.g-tax-rate[data-index="${i}"]`, s.tax_rate);
+        const badgeEl = document.querySelector(`.g-tax-badge[data-index="${i}"]`);
+        if (badgeEl && s.tax_badge_custom === '1') {
+            badgeEl.dataset.custom = '1'; badgeEl.textContent = 'custom';
+        }
+        setVal(`.g-net-income[data-index="${i}"]`, s.net_income);
+        setVal(`.g-save-rate[data-index="${i}"]`, s.save_rate);
+        const saveDisp = document.querySelector(`.g-save-rate-display[data-index="${i}"]`);
+        if (saveDisp && s.save_rate != null) saveDisp.textContent = s.save_rate + '%';
+        setVal(`.g-distribution[data-index="${i}"]`, s.distribution);
+        setVal(`.g-invest-pct[data-index="${i}"]`, s.invest_pct);
+        const invDisp = document.querySelector(`.g-invest-pct-display[data-index="${i}"]`);
+        if (invDisp && s.invest_pct != null) invDisp.textContent = s.invest_pct + '%';
+        toggleDistribution(i, s.distribution || 'split');
+        setVal(`.g-mortgage-rate[data-index="${i}"]`, s.mort_rate);
+        setVal(`.g-mortgage-months[data-index="${i}"]`, s.mort_months);
+        const useAmortEl = document.querySelector(`.g-use-amort[data-index="${i}"]`);
+        if (useAmortEl && s.use_amort != null) useAmortEl.checked = s.use_amort;
+        Object.entries(s.rates || {}).forEach(([cat, val]) => {
+            setVal(`.g-category-rate[data-category="${cat}"][data-index="${i}"]`, val);
+        });
+        (s.expenses || []).forEach(exp => addExpenseRow(i, exp));
+    });
+
+    (data.activeGrowthScenarios || []).forEach(i => {
+        if (i === 0) return;
+        activeGrowthScenarios.add(i);
+        document.getElementById(`gTabItem${i}`)?.classList.remove('d-none');
+    });
+    if (activeGrowthScenarios.size >= 3)
+        document.getElementById('gAddTabItem')?.classList.add('d-none');
+}
+
+// ─── Expense rows ─────────────────────────────────────────────────────────────
+function addExpenseRow(idx, expData) {
+    const list = document.querySelector(`.g-expense-list[data-index="${idx}"]`);
+    if (!list) return;
+    const thisYear = new Date().getFullYear();
+    const row = document.createElement('div');
+    row.className = 'g-expense-row border rounded p-2 mb-2';
+    row.dataset.index = idx;
+    row.innerHTML = `
+        <div class="d-flex gap-1 mb-1">
+            <input type="text" class="form-control form-control-sm g-expense-name"
+                   placeholder="Description" value="${expData?.name || ''}">
+            <button type="button"
+                    class="btn btn-outline-danger btn-sm py-0 px-2 g-remove-expense"
+                    style="flex-shrink:0">×</button>
+        </div>
+        <div class="d-flex gap-1">
+            <div class="input-group input-group-sm" style="max-width:55%">
+                <span class="input-group-text">$</span>
+                <input type="number" class="form-control g-expense-amount"
+                       placeholder="Amount" min="0" step="1000"
+                       value="${expData?.amount || ''}">
+            </div>
+            <input type="number" class="form-control form-control-sm g-expense-year"
+                   placeholder="Year" min="${thisYear}" max="${thisYear + 30}"
+                   value="${expData?.year || ''}">
+        </div>`;
+    row.querySelector('.g-remove-expense').addEventListener('click', () => {
+        row.remove(); debouncedGrowth();
+    });
+    row.querySelectorAll('input').forEach(el => el.addEventListener('input', debouncedGrowth));
+    list.appendChild(row);
+}
+
+// ─── Growth scenario tab events ───────────────────────────────────────────────
+document.getElementById('gAddScenarioBtn').addEventListener('click', () => {
+    const next = [1, 2].find(i => !activeGrowthScenarios.has(i));
+    if (next === undefined) return;
+    activeGrowthScenarios.add(next);
+    document.getElementById(`gTabItem${next}`)?.classList.remove('d-none');
+    if (activeGrowthScenarios.size >= 3)
+        document.getElementById('gAddTabItem')?.classList.add('d-none');
+    bootstrap.Tab.getOrCreateInstance(document.getElementById(`gTab${next}`)).show();
+    saveGrowthScenarios();
+});
+
+document.querySelectorAll('.g-remove-scenario-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.index);
+        activeGrowthScenarios.delete(idx);
+        document.getElementById(`gTabItem${idx}`)?.classList.add('d-none');
+        document.getElementById('gAddTabItem')?.classList.remove('d-none');
+        activeGrowthTabIndex = 0;
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('gTab0')).show();
+        saveGrowthScenarios();
+    });
+});
+
+document.getElementById('growthScenarioTabs').addEventListener('shown.bs.tab', e => {
+    activeGrowthTabIndex = parseInt(e.target.dataset.bsTarget.replace('#gPane', ''));
+    debouncedGrowth();
+});
+
+// ─── Income section interactions ──────────────────────────────────────────────
+document.querySelectorAll('.g-income-mode').forEach(el => {
+    el.addEventListener('change', function() {
+        const i = parseInt(this.dataset.index);
+        toggleIncomeMode(i, this.value);
+        if (this.value === 'gross') updateAutoTaxRate(i);
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-gross-income, .g-filing-status').forEach(el => {
+    el.addEventListener('input', function() {
+        updateAutoTaxRate(parseInt(this.dataset.index));
+        debouncedGrowth();
+    });
+    el.addEventListener('change', function() {
+        updateAutoTaxRate(parseInt(this.dataset.index));
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-tax-rate').forEach(el => {
+    el.addEventListener('input', function() {
+        const i = parseInt(this.dataset.index);
+        const badge = document.querySelector(`.g-tax-badge[data-index="${i}"]`);
+        if (badge) { badge.dataset.custom = '1'; badge.textContent = 'custom'; }
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-save-rate').forEach(el => {
+    el.addEventListener('input', function() {
+        const disp = document.querySelector(`.g-save-rate-display[data-index="${this.dataset.index}"]`);
+        if (disp) disp.textContent = this.value + '%';
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-distribution').forEach(el => {
+    el.addEventListener('change', function() {
+        toggleDistribution(parseInt(this.dataset.index), this.value);
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-invest-pct').forEach(el => {
+    el.addEventListener('input', function() {
+        const disp = document.querySelector(`.g-invest-pct-display[data-index="${this.dataset.index}"]`);
+        if (disp) disp.textContent = this.value + '%';
+        debouncedGrowth();
+    });
+});
+
+document.querySelectorAll('.g-add-expense').forEach(btn => {
+    btn.addEventListener('click', () => { addExpenseRow(parseInt(btn.dataset.index), null); });
+});
+
+// Catch-all for remaining growth inputs
+document.querySelectorAll([
+    '.g-category-rate', '.g-horizon', '.g-stacked', '.g-current-age',
+    '.g-net-income', '.g-mortgage-rate', '.g-mortgage-months', '.g-use-amort',
+    '.g-scenario-name',
+].join(',')).forEach(el => {
+    el.addEventListener('input',  debouncedGrowth);
+    el.addEventListener('change', debouncedGrowth);
+});
+
+// Initialise UI state for all scenario panes
+[0, 1, 2].forEach(i => {
+    const distEl = document.querySelector(`.g-distribution[data-index="${i}"]`);
+    if (distEl) toggleDistribution(i, distEl.value);
+});
+
+// ─── FI TAB ──────────────────────────────────────────────────────────────────
+let fiChart = null;
+let fiAbortController = null;
+
+const SCENARIO_COLORS = ['#0d6efd', '#198754', '#fd7e14'];
+
+// Track which scenario indices are enabled (0 is always on)
+const activeScenarios = new Set([0]);
+
+// Index of the currently visible scenario tab (drives sensitivity table)
+let activeTabIndex = 0;
+
+function getScenarioData(i) {
+    return {
+        name:            document.querySelector(`.scenario-name[data-index="${i}"]`)?.value || `Scenario ${i+1}`,
+        spending:        parseFloat(document.querySelector(`.scenario-spending[data-index="${i}"]`)?.value) || 80000,
+        swr:             parseFloat(document.querySelector(`.scenario-swr[data-index="${i}"]`)?.value) || 4,
+        growth_rate:     parseFloat(document.querySelector(`.scenario-growth[data-index="${i}"]`)?.value) || 7,
+        monthly_savings: parseFloat(document.querySelector(`.scenario-savings[data-index="${i}"]`)?.value) || 0,
+    };
+}
+
+function getFiPayload() {
+    const sortedIndices = [...activeScenarios].sort();
+    const scenarios = sortedIndices.map(i => getScenarioData(i));
+    // active_index is the position within the sorted list, not the global tab index
+    const activePos = Math.max(0, sortedIndices.indexOf(activeTabIndex));
+    const payload = {scenarios, active_index: activePos};
+    const ageEl = document.getElementById('currentAge');
+    if (ageEl && ageEl.value) payload.current_age = parseInt(ageEl.value);
+    return payload;
+}
+
+async function updateFiChart() {
+    const payload = getFiPayload();
+    if (!payload.scenarios.length) return;
+
+    // Cancel any in-flight request (race condition fix)
+    if (fiAbortController) fiAbortController.abort();
+    fiAbortController = new AbortController();
+
+    let resp, body;
+    try {
+        resp = await fetch('/api/projections/fi', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload),
+            signal: fiAbortController.signal,
+        });
+        body = await resp.json();
+    } catch (e) {
+        if (e.name === 'AbortError') return;
+        return;
+    }
+    if (!resp.ok) return;
+
+    // Progress bar — always Scenario 1 (index 0 in sorted active list)
+    const s0 = body.scenarios[0];
+    if (s0.fi_number) {
+        const pct = Math.min(100, (CURRENT_NW / s0.fi_number) * 100);
+        document.getElementById('fiProgressBar').style.width = pct + '%';
+        document.getElementById('fiProgressPct').textContent = pct.toFixed(1) + '% of FI';
+        document.getElementById('fiTargetDisplay').textContent = fmt(s0.fi_number);
+
+        // #61 Coast FI
+        const currentAge = parseInt(document.getElementById('currentAge').value) || null;
+        const retirementAge = parseInt(document.getElementById('retirementAge').value) || 65;
+        const growthRate = (parseFloat(document.querySelector('.scenario-growth[data-index="0"]')?.value) || 7) / 100;
+        const coastCard = document.getElementById('coastFiCard');
+        if (currentAge && retirementAge > currentAge) {
+            const yrsToRet = retirementAge - currentAge;
+            const coastTarget = s0.fi_number / Math.pow(1 + growthRate, yrsToRet);
+            const coastPct = Math.min(100, (CURRENT_NW / coastTarget) * 100);
+            document.getElementById('coastFiTarget').textContent = fmt(coastTarget);
+            document.getElementById('coastFiBar').style.width = coastPct + '%';
+            document.getElementById('coastFiPct').textContent = coastPct.toFixed(1) + '% of Coast FI';
+            document.getElementById('coastFiMsg').textContent = CURRENT_NW >= coastTarget
+                ? '✓ Coast FI reached!'
+                : fmt(coastTarget - CURRENT_NW) + ' to go';
+            coastCard.style.removeProperty('display');
+        } else {
+            coastCard.style.setProperty('display', 'none', 'important');
+        }
+    }
+
+    // FI callout cards (one per active scenario)
+    const calloutsEl = document.getElementById('fiCallouts');
+    calloutsEl.innerHTML = '';
+    const sortedIndices = [...activeScenarios].sort();
+    body.scenarios.forEach((s, si) => {
+        const colorIdx = sortedIndices[si] % SCENARIO_COLORS.length;
+        const col = document.createElement('div');
+        col.className = 'col-sm-4';
+        col.innerHTML = `
+            <div class="card text-center border-0 shadow-sm">
+                <div class="card-body py-2">
+                    <div class="small fw-semibold text-truncate" style="color:${SCENARIO_COLORS[colorIdx]}">${s.name}</div>
+                    <div class="fw-bold fs-5">${s.fi_date || '50+ yrs'}</div>
+                    <div class="text-muted small">${s.years_to_fi != null ? s.years_to_fi + ' yrs away' : 'not reached'}${s.age_at_fi ? ' · age ' + s.age_at_fi : ''}</div>
+                    <div class="text-muted small">FI#: ${fmt(s.fi_number)}</div>
+                </div>
+            </div>`;
+        calloutsEl.appendChild(col);
+    });
+
+    // Chart — all scenarios overlaid; active tab scenario full weight, others de-emphasised
+    const maxMonths = Math.min(body.labels.length, 600);
+    const labels = body.labels.slice(0, maxMonths);
+    const traces = [];
+
+    body.scenarios.forEach((s, si) => {
+        const globalIdx = sortedIndices[si];
+        const colorIdx  = globalIdx % SCENARIO_COLORS.length;
+        const isActive  = globalIdx === activeTabIndex;
+
+        // FI target (dashed horizontal)
+        if (s.fi_number) {
+            traces.push({
+                x: [labels[0], labels[labels.length - 1]],
+                y: [s.fi_number, s.fi_number],
+                name: `${s.name} FI#`,
+                type: 'scatter', mode: 'lines',
+                line: {color: SCENARIO_COLORS[colorIdx], width: 1, dash: 'dot'},
+                opacity: isActive ? 1.0 : 0.4,
+                showlegend: true,
+            });
+        }
+
+        // Projection line
+        traces.push({
+            x: labels,
+            y: s.projection.slice(0, maxMonths),
+            name: s.name,
+            type: 'scatter', mode: 'lines',
+            line: {color: SCENARIO_COLORS[colorIdx], width: isActive ? 3 : 1.5,
+                   dash: isActive ? 'solid' : 'dash'},
+            opacity: isActive ? 1.0 : 0.45,
+        });
+    });
+
+    // #51 Conservative scenario
+    const showConservative = document.getElementById('conservativeToggle')?.checked;
+    if (showConservative && body.scenarios.length > 0) {
+        const s = body.scenarios[0];
+        const baseGrowth = parseFloat(document.querySelector('.scenario-growth[data-index="0"]')?.value) || 7;
+        const baseSwr    = parseFloat(document.querySelector('.scenario-swr[data-index="0"]')?.value) || 4;
+        const consGrowth = Math.max(1, baseGrowth - 2);
+        const consSwr    = Math.max(0.5, baseSwr - 0.5);
+        const consFiNum  = s0.fi_number * (baseSwr / consSwr);   // higher FI target with lower SWR
+        const consR      = (consGrowth / 100) / 12;
+        const consSavings = parseFloat(document.querySelector('.scenario-savings[data-index="0"]')?.value) || 0;
+        const n = Math.min(body.labels.length, 600);
+        const consSeries = [];
+        for (let m = 0; m < n; m++) {
+            let fv;
+            if (consR === 0) { fv = CURRENT_NW + consSavings * m; }
+            else { const g = Math.pow(1 + consR, m); fv = CURRENT_NW * g + consSavings * (g - 1) / consR; }
+            consSeries.push(fv);
+        }
+        traces.push({
+            x: body.labels.slice(0, n),
+            y: consSeries,
+            name: `Conservative (${consGrowth}% / ${consSwr}% SWR)`,
+            type: 'scatter', mode: 'lines',
+            line: {color: '#6c757d', width: 2, dash: 'longdash'},
+            opacity: 0.75,
+        });
+        traces.push({
+            x: [body.labels[0], body.labels[n - 1]],
+            y: [consFiNum, consFiNum],
+            name: 'Conservative FI#',
+            type: 'scatter', mode: 'lines',
+            line: {color: '#6c757d', width: 1, dash: 'dot'},
+            opacity: 0.65,
+            showlegend: true,
+        });
+    }
+
+    const shapes = [{
+        type: 'line', xref: 'x', yref: 'paper',
+        x0: TODAY_STR, x1: TODAY_STR, y0: 0, y1: 1,
+        line: {color: '#adb5bd', width: 1, dash: 'dot'},
+    }];
+
+    const ac = axisColor();
+    const layout = {
+        margin: {l: 80, r: 20, t: 20, b: 40},
+        xaxis: {title: '', color: ac},
+        yaxis: {tickformat: '$.3s', exponentformat: 'none', color: ac},
+        font: {color: ac},
+        legend: {orientation: 'h', y: -0.18},
+        shapes,
+        hovermode: 'x unified',
+        plot_bgcolor: 'transparent',
+        paper_bgcolor: 'transparent',
+    };
+
+    if (!fiChart) {
+        Plotly.newPlot('fiChart', traces, layout, {responsive: true, displayModeBar: false});
+        fiChart = true;
+    } else {
+        Plotly.react('fiChart', traces, layout);
+    }
+
+    // Sensitivity table — reflects the active scenario tab (SWR × Growth Rate)
+    const activeName = getScenarioData(activeTabIndex).name;
+    document.getElementById('sensLabel').textContent = `SWR × Growth Rate (${activeName})`;
+
+    const sens = body.sensitivity;
+    const hdr = document.getElementById('sensHeaderRow');
+    hdr.innerHTML = '<th class="text-muted small">SWR \\ Growth</th>';
+    sens.rate_labels.forEach(lbl => {
+        hdr.innerHTML += `<th class="text-center small">${lbl}</th>`;
+    });
+
+    const tbody = document.getElementById('sensBody');
+    tbody.innerHTML = '';
+    sens.swr_labels.forEach((swr_lbl, ri) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td class="text-muted small">${swr_lbl}</td>`;
+        sens.data[ri].forEach(val => {
+            const text = val != null ? val + ' yr' : '50+';
+            const cls = val == null ? 'table-danger' : val < 20 ? 'table-success' : val < 35 ? 'table-warning' : 'table-danger';
+            tr.innerHTML += `<td class="text-center small ${cls}">${text}</td>`;
+        });
+        tbody.appendChild(tr);
+    });
+}
+
+// ─── Scenario persistence ────────────────────────────────────────────────────
+function saveScenarios() {
+    try {
+        localStorage.setItem('ledger-fi-scenarios', JSON.stringify({
+            activeScenarios: [...activeScenarios],
+            scenarios: [0, 1, 2].map(i => ({
+                name:    document.querySelector(`.scenario-name[data-index="${i}"]`)?.value,
+                spending:document.querySelector(`.scenario-spending[data-index="${i}"]`)?.value,
+                swr:     document.querySelector(`.scenario-swr[data-index="${i}"]`)?.value,
+                growth:  document.querySelector(`.scenario-growth[data-index="${i}"]`)?.value,
+                savings: document.querySelector(`.scenario-savings[data-index="${i}"]`)?.value,
+            })),
+            currentAge: document.getElementById('currentAge')?.value,
+        }));
+    } catch(e) {}
+}
+
+function loadScenarios() {
+    let data;
+    try { data = JSON.parse(localStorage.getItem('ledger-fi-scenarios')); } catch(e) {}
+    if (!data) return;
+    if (data.currentAge) document.getElementById('currentAge').value = data.currentAge;
+    (data.scenarios || []).forEach((s, i) => {
+        if (!s) return;
+        const set = (sel, val) => { const el = document.querySelector(sel); if (el && val != null) el.value = val; };
+        set(`.scenario-name[data-index="${i}"]`, s.name);
+        set(`.scenario-spending[data-index="${i}"]`, s.spending);
+        set(`.scenario-growth[data-index="${i}"]`, s.growth);
+        set(`.scenario-savings[data-index="${i}"]`, s.savings);
+        if (s.swr != null) {
+            const el = document.querySelector(`.scenario-swr[data-index="${i}"]`);
+            if (el) { el.value = s.swr; document.getElementById(`swrDisplay${i}`).textContent = s.swr + '%'; }
+        }
+    });
+    (data.activeScenarios || []).forEach(i => {
+        if (i === 0) return;
+        activeScenarios.add(i);
+        document.getElementById(`sTabItem${i}`).classList.remove('d-none');
+    });
+    if (activeScenarios.size >= 3) document.getElementById('addTabItem').classList.add('d-none');
+
+    // Re-validate growth rates now that localStorage values are applied
+    document.querySelectorAll('.scenario-growth').forEach(el => validateGrowthRate(el));
+}
+
+const debouncedFi = debounce(() => { updateFiChart(); saveScenarios(); }, 400);
+
+// Growth rate validation (warns > 8%, caps at 12%)
+function validateGrowthRate(input) {
+    const idx = input.dataset.index;
+    const warnEl = document.querySelector(`.scenario-growth-warn[data-index="${idx}"]`);
+    const val = parseFloat(input.value);
+    if (!warnEl) return;
+    if (val > 12) {
+        input.value = 12;
+        warnEl.textContent = 'Capped at 12% — historical US market maximum';
+        warnEl.classList.remove('d-none');
+    } else if (val > 8) {
+        warnEl.textContent = '⚠ Above historical average (~7% real)';
+        warnEl.classList.remove('d-none');
+    } else {
+        warnEl.classList.add('d-none');
+    }
+}
+document.querySelectorAll('.scenario-growth').forEach(el => {
+    el.addEventListener('input', function () { validateGrowthRate(this); });
+});
+
+// Attach all FI input listeners up front (all panes are in DOM)
+document.querySelectorAll('.scenario-name,.scenario-spending,.scenario-growth,.scenario-savings,.scenario-swr')
+    .forEach(el => el.addEventListener('input', debouncedFi));
+document.getElementById('currentAge').addEventListener('input', debouncedFi);
+document.getElementById('retirementAge').addEventListener('input', debouncedFi);
+document.getElementById('conservativeToggle').addEventListener('change', debouncedFi);
+
+// Scenario tab switch → update activeTabIndex, lock note, and re-render (debounced)
+document.getElementById('scenarioTabs').addEventListener('shown.bs.tab', e => {
+    const paneId = e.target.dataset.bsTarget; // e.g. "#sPane1"
+    activeTabIndex = parseInt(paneId.replace('#sPane', ''));
+    const lockNote = document.getElementById('progressLockNote');
+    if (activeTabIndex === 0) {
+        lockNote.textContent = '(Scenario 1 baseline)';
+    } else {
+        lockNote.textContent = `(locked to Scenario 1 — viewing S${activeTabIndex + 1})`;
+    }
+    debouncedFi();
+});
+
+// Add scenario — .show() fires shown.bs.tab which calls debouncedFi(); no explicit call needed
+document.getElementById('addScenarioBtn').addEventListener('click', () => {
+    const next = [1, 2].find(i => !activeScenarios.has(i));
+    if (next === undefined) return;
+    activeScenarios.add(next);
+    document.getElementById(`sTabItem${next}`).classList.remove('d-none');
+    if (activeScenarios.size >= 3)
+        document.getElementById('addTabItem').classList.add('d-none');
+    bootstrap.Tab.getOrCreateInstance(document.getElementById(`sTab${next}`)).show();
+    saveScenarios();
+});
+
+// Remove scenario — set activeTabIndex before .show() so shown.bs.tab reads the correct value
+document.querySelectorAll('.remove-scenario-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const idx = parseInt(btn.dataset.index);
+        activeScenarios.delete(idx);
+        document.getElementById(`sTabItem${idx}`).classList.add('d-none');
+        document.getElementById('addTabItem').classList.remove('d-none');
+        activeTabIndex = 0;
+        bootstrap.Tab.getOrCreateInstance(document.getElementById('sTab0')).show();
+        saveScenarios();
+    });
+});
+
+// Top-level tab switches
+document.getElementById('growth-tab').addEventListener('shown.bs.tab', () => {
+    if (!growthChart) updateGrowthChart();
+    else Plotly.Plots.resize(document.getElementById('growthChart'));
+});
+document.getElementById('fi-tab').addEventListener('shown.bs.tab', () => {
+    if (!fiChart) updateFiChart();
+    else Plotly.Plots.resize(document.getElementById('fiChart'));
+});
+
+// "Switch to Growth" shortcut link in FI sidebar
+document.getElementById('switchToGrowthLink').addEventListener('click', e => {
+    e.preventDefault();
+    bootstrap.Tab.getOrCreateInstance(document.getElementById('growth-tab')).show();
+});
+
+// Restore persisted scenarios, validate, then render
+loadGrowthScenarios();
+loadScenarios(); // also re-validates growth rates internally
+// Validate any scenario-growth fields not covered by loadScenarios (e.g. no localStorage)
+document.querySelectorAll('.scenario-growth').forEach(el => validateGrowthRate(el));
+updateFiChart();
+
+// Re-render charts when theme changes
+new MutationObserver(() => {
+    if (growthChart) updateGrowthChart();
+    if (fiChart) updateFiChart();
+}).observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
+</script>
+{% endblock %}

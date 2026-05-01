@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}{{ account.name }} — Balance History{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="/accounts" class="text-muted text-decoration-none">&larr; All Accounts</a>
+</div>
+
+<div class="row align-items-center mb-4">
+    <div class="col">
+        <div class="d-flex align-items-center gap-2">
+            {% if account.display_color %}
+            <span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:{{ account.display_color }}"></span>
+            {% endif %}
+            <h1 class="mb-0">{{ account.name }}</h1>
+        </div>
+        <p class="text-muted mb-0">
+            {{ account.account_type|title }} &middot; {{ account.category.replace('_', ' ').title() }}
+            {% if account.institution %} &middot; {{ account.institution }}{% endif %}
+        </p>
+    </div>
+    {% if snapshots %}
+    <div class="col-auto">
+        <a href="/accounts/{{ account.id }}/history/export" class="btn btn-outline-secondary btn-sm">Export CSV</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if snapshots %}
+
+<!-- Summary stats -->
+<div class="row g-3 mb-4">
+    <div class="col-sm-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-4 fw-bold">${{ "{:,.0f}".format(snapshots[-1].balance) }}</div>
+                <div class="text-muted small">Latest Balance</div>
+                <div class="text-muted small">{{ snapshots[-1].snapshot_date.strftime('%b %Y') }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-4 fw-bold">{{ snapshots|length }}</div>
+                <div class="text-muted small">Snapshots</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                <div class="fs-4 fw-bold">{{ snapshots[0].snapshot_date.strftime('%b %Y') }}</div>
+                <div class="text-muted small">First Recorded</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-md-3">
+        <div class="card text-center">
+            <div class="card-body py-3">
+                {% if cagr is not none %}
+                <div class="fs-4 fw-bold {{ 'text-success' if cagr >= 0 else 'text-danger' }}">
+                    {{ "%+.1f"|format(cagr) }}%
+                </div>
+                <div class="text-muted small">CAGR</div>
+                {% else %}
+                <div class="fs-4 fw-bold text-muted">—</div>
+                <div class="text-muted small">CAGR (need ≥2 snapshots)</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Balance chart -->
+<div class="card mb-4">
+    <div class="card-body">
+        <div id="historyChart"></div>
+    </div>
+</div>
+
+<!-- Snapshot table -->
+<div class="card">
+    <div class="card-header">All Snapshots</div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" id="snapshotsHistoryTable">
+            <thead class="table-light">
+                <tr>
+                    <th data-sort-type="text">Month</th>
+                    <th class="text-end" data-sort-type="number">Balance</th>
+                    <th class="text-end" data-sort-type="number">Change</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for i in range(snapshots|length - 1, -1, -1) %}
+                {% set s = snapshots[i] %}
+                {% set delta = changes[i] %}
+                <tr>
+                    <td data-sort-value="{{ s.snapshot_date.strftime('%Y-%m') }}">{{ s.snapshot_date.strftime('%B %Y') }}</td>
+                    <td class="text-end">${{ "{:,.2f}".format(s.balance) }}</td>
+                    <td class="text-end">
+                        {% if delta is not none %}
+                        <span class="{{ 'text-success' if delta >= 0 else 'text-danger' }}">
+                            {{ "%+.0f"|format(delta) }}
+                        </span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <p class="text-muted mb-0">No balance snapshots recorded for this account yet.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if snapshots %}
+<script>
+const dates = {{ chart_dates | tojson }};
+const balances = {{ chart_balances | tojson }};
+const color = {{ (account.display_color or '#0d6efd') | tojson }};
+
+Plotly.newPlot('historyChart', [{
+    x: dates,
+    y: balances,
+    type: 'scatter',
+    mode: 'lines+markers',
+    name: {{ account.name | tojson }},
+    line: { color: color },
+    marker: { color: color },
+    hovertemplate: '%{x}<br>$%{y:,.0f}<extra></extra>',
+}], {
+    xaxis: { title: 'Month' },
+    yaxis: { title: 'Balance ($)', tickformat: '$,.0f' },
+    hovermode: 'x unified',
+    height: 350,
+    margin: { t: 20, r: 20, b: 50, l: 80 },
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    initSortableTable('snapshotsHistoryTable');
+});
+</script>
+{% endif %}
+{% endblock %}

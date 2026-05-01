@@ -1,0 +1,877 @@
+{% extends "base.html" %}
+
+{% block title %}{% if account %}Edit — {{ account.name }}{% else %}New Account{% endif %}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="/accounts" class="text-muted text-decoration-none">&larr; All Accounts</a>
+</div>
+
+<h1 class="mb-4">{% if account %}Edit — {{ account.name }}{% else %}New Account{% endif %}</h1>
+
+{% if errors %}
+<div class="alert alert-danger">
+    <ul class="mb-0">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if account %}
+<div class="alert alert-secondary py-2 px-3 mb-4" id="settingsPreview">
+    {% if latest_snap %}
+    <strong>Latest balance:</strong> ${{ "{:,.2f}".format(latest_snap.balance) }}
+    ({{ latest_snap.snapshot_date.strftime('%b %Y') }})
+    &nbsp;·&nbsp; {{ snap_count }} snapshot{{ 's' if snap_count != 1 }}
+    &nbsp;·&nbsp; <span id="previewImpact"></span>
+    {% else %}
+    No snapshots recorded yet.
+    {% endif %}
+</div>
+{% if holdings_value is not none and latest_snap and latest_snap.balance and latest_snap.balance != 0
+      and ((holdings_value - latest_snap.balance|float)|abs / latest_snap.balance|float|abs) > 0.01 %}
+<div class="alert alert-warning py-2 px-3 mb-4">
+    ⚠ Holdings data calculates <strong>${{ "{:,.2f}".format(holdings_value) }}</strong>
+    but the latest snapshot shows <strong>${{ "{:,.2f}".format(latest_snap.balance) }}</strong>.
+    Your holdings information may be out of date.
+</div>
+{% endif %}
+{% endif %}
+
+<form method="POST" class="row g-3">
+
+    <!-- Name / Institution -->
+    <div class="col-md-6">
+        <label class="form-label fw-semibold">Account Name <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" value="{{ values.name }}" required>
+    </div>
+    <div class="col-md-6">
+        <label class="form-label fw-semibold">Institution</label>
+        <input type="text" name="institution" class="form-control"
+               placeholder="e.g. Fidelity, Vanguard" value="{{ values.institution }}">
+    </div>
+
+    <!-- Category / Type / Tax Status -->
+    <div class="col-md-4">
+        <label class="form-label fw-semibold">Category <span class="text-danger">*</span></label>
+        <select name="category" id="categorySelect" class="form-select" required>
+            <option value="">— select —</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}" {% if values.category == cat %}selected{% endif %}>
+                {{ cat.replace('_', ' ').title() }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="col-md-4">
+        <label class="form-label fw-semibold">Account Type <span class="text-danger">*</span></label>
+        <select name="account_type" id="accountTypeSelect" class="form-select" required>
+            <option value="asset"     {% if values.account_type == 'asset'     %}selected{% endif %}>Asset</option>
+            <option value="liability" {% if values.account_type == 'liability' %}selected{% endif %}>Liability</option>
+        </select>
+    </div>
+    <div class="col-md-4" id="taxStatusWrapper">
+        <label class="form-label fw-semibold">Tax Status</label>
+        <select name="tax_status" id="taxStatusSelect" class="form-select">
+            <option value="">—</option>
+            <option value="taxable"      {% if values.tax_status == 'taxable'      %}selected{% endif %}>Taxable</option>
+            <option value="tax_deferred" {% if values.tax_status == 'tax_deferred' %}selected{% endif %}>Tax-Deferred</option>
+            <option value="tax_free"     {% if values.tax_status == 'tax_free'     %}selected{% endif %}>Tax-Free (Roth)</option>
+        </select>
+    </div>
+
+    <!-- Checkboxes -->
+    <div class="col-12">
+        <div class="d-flex gap-4 flex-wrap">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_liquid" id="isLiquid"
+                       {% if values.is_liquid %}checked{% endif %}>
+                <label class="form-check-label" for="isLiquid">Is Liquid</label>
+            </div>
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="include_in_networth" id="includeNetworth"
+                       {% if values.include_in_networth %}checked{% endif %}>
+                <label class="form-check-label" for="includeNetworth">Include in Net Worth</label>
+            </div>
+            {% if account %}
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_active" id="isActive"
+                       {% if values.is_active %}checked{% endif %}>
+                <label class="form-check-label" for="isActive">Active</label>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Paired Mortgage (real estate only) -->
+    <div class="col-md-6" id="pairedLiabilityWrapper">
+        <label class="form-label fw-semibold">Paired Mortgage</label>
+        <select name="paired_liability_id" class="form-select">
+            <option value="">— None —</option>
+            {% for m in mortgage_accounts %}
+            <option value="{{ m.id }}"
+                    {% if values.paired_liability_id|string == m.id|string %}selected{% endif %}>
+                {{ m.name }}{% if m.institution %} · {{ m.institution }}{% endif %}
+            </option>
+            {% endfor %}
+        </select>
+        <div class="form-text">Links this property to its mortgage for equity tracking.</div>
+    </div>
+
+    <!-- Account Number / Display Color -->
+    <div class="col-md-3">
+        <label class="form-label fw-semibold">Account Number</label>
+        <input type="text" name="account_number" class="form-control"
+               placeholder="Last 4 digits" maxlength="4" value="{{ values.account_number }}">
+    </div>
+    <div class="col-md-3">
+        <label class="form-label fw-semibold">Display Color</label>
+        <div class="d-flex align-items-center gap-2">
+            <input type="color" name="display_color" class="form-control form-control-color"
+                   value="{{ values.display_color or '#6c757d' }}">
+            <span class="text-muted small">Optional</span>
+        </div>
+    </div>
+
+    <!-- Holdings (investment accounts only, edit mode) -->
+    {% if account and values.category in investment_cats %}
+    <div class="col-12" id="holdingsSection">
+        <hr class="my-1">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+            <p class="fw-semibold mb-0">Holdings
+                <span class="text-muted fw-normal small ms-1">— individual tickers; allocation derived from these when present</span>
+            </p>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btnRefreshPrices">
+                Refresh Prices
+            </button>
+        </div>
+
+        <!-- Holdings table -->
+        <div class="table-responsive">
+            <table class="table table-sm mb-0" id="holdingsTable">
+                <thead class="table-light">
+                    <tr>
+                        <th data-sort-type="text">Ticker</th>
+                        <th data-sort-type="text">Name</th>
+                        <th class="text-end" data-sort-type="number">Shares</th>
+                        <th class="text-end" data-sort-type="number">Price</th>
+                        <th class="text-end" data-sort-type="number">Value</th>
+                        <th>Asset Class</th>
+                        <th class="text-muted small">Updated</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="holdingsTbody">
+                    <tr id="holdingsLoading"><td colspan="8" class="text-muted small py-2">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Add holding row (hidden until triggered) -->
+        <div id="addHoldingRow" class="border rounded p-2 mt-2 d-none bg-light">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Ticker</label>
+                    <input type="text" id="newTicker" class="form-control form-control-sm text-uppercase"
+                           placeholder="VTI" style="width:80px" maxlength="20">
+                </div>
+                <div class="col">
+                    <label class="form-label small mb-1">Name <span class="text-muted">(auto-filled)</span></label>
+                    <input type="text" id="newName" class="form-control form-control-sm" placeholder="…">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Shares</label>
+                    <input type="number" id="newShares" class="form-control form-control-sm"
+                           placeholder="0" min="0" step="any" style="width:100px">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-1">Price</label>
+                    <input type="number" id="newPrice" class="form-control form-control-sm"
+                           placeholder="0.00" min="0" step="any" style="width:90px" readonly>
+                </div>
+            </div>
+
+            <!-- Asset class assignment -->
+            <div class="mt-2">
+                <label class="form-label small mb-1">Asset Class</label>
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                    {% for cls in allocation_classes %}
+                    <div class="form-check form-check-inline mb-0">
+                        <input class="form-check-input alloc-class-radio" type="radio"
+                               name="newAllocClass" id="radio_{{ cls }}" value="{{ cls }}">
+                        <label class="form-check-label text-capitalize" for="radio_{{ cls }}">{{ cls }}</label>
+                    </div>
+                    {% endfor %}
+                    <button type="button" class="btn btn-link btn-sm p-0 ms-2" id="btnSplit">Split…</button>
+                    <span class="text-muted small ms-2 d-none" id="aiClassifiedNote">✦ AI classified</span>
+                    <span class="text-warning small ms-2 d-none" id="manualClassifyFlag">⚠ Could not classify — set asset allocation manually</span>
+                </div>
+
+                <!-- Split inputs (blended funds) -->
+                <div id="splitInputs" class="d-none mt-2 row g-2">
+                    {% for cls in allocation_classes %}
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small text-capitalize mb-0">{{ cls }}</label>
+                        <div class="input-group input-group-sm">
+                            <input type="number" class="form-control split-pct" id="split_{{ cls }}"
+                                   min="0" max="100" step="0.1" placeholder="0">
+                            <span class="input-group-text">%</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    <div class="col-12">
+                        <span class="small" id="splitSumLabel"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex gap-2 mt-2">
+                <button type="button" class="btn btn-primary btn-sm" id="btnSaveHolding">Add</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnCancelHolding">Cancel</button>
+                <span class="text-danger small align-self-center d-none" id="addHoldingError"></span>
+            </div>
+        </div>
+
+        <div class="mt-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnAddHolding">+ Add Holding</button>
+            <span class="text-muted small ms-2" id="holdingsHint">
+                {% if account.category == '401k' %}Target-date funds can be split across asset classes.{% endif %}
+            </span>
+        </div>
+        <div class="mt-1 small text-muted" id="refreshStatus"></div>
+    </div>
+    {% endif %}
+
+    <!-- Asset Class Allocation (investment accounts only, manual override) -->
+    {% if account and values.category in investment_cats %}
+    <div class="col-12" id="allocationSection">
+        <hr class="my-1">
+        <p class="fw-semibold mb-1">Asset Class Allocation
+            <span class="text-muted fw-normal small ms-1">— manual override; used only when no holdings are set</span>
+        </p>
+        <div class="row g-2">
+            {% for cls in allocation_classes %}
+            <div class="col-6 col-md-3">
+                <label class="form-label small text-capitalize">{{ cls }}</label>
+                <div class="input-group input-group-sm">
+                    <input type="number" name="alloc_{{ cls }}" class="form-control alloc-input"
+                           min="0" max="100" step="0.1"
+                           value="{{ allocations.get(cls, '') or '' }}"
+                           placeholder="0">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="mt-1 small" id="allocSum">
+            <span class="text-muted">Enter percentages summing to 100. Leave blank to skip.</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Notes -->
+    <div class="col-12">
+        <label class="form-label fw-semibold">Notes</label>
+        <textarea name="notes" class="form-control" rows="3"
+                  placeholder="Any additional context...">{{ values.notes }}</textarea>
+    </div>
+
+    {% if not account %}
+    <!-- Opening Balance (new accounts only) -->
+    <div class="col-12"><hr class="my-1"><p class="text-muted small mb-0">Optional — record an opening balance for this account</p></div>
+    <div class="col-md-4">
+        <label class="form-label fw-semibold">Opening Balance</label>
+        <input type="text" inputmode="decimal" name="opening_balance" class="form-control currency-input" placeholder="0.00">
+    </div>
+    <div class="col-md-4">
+        <label class="form-label fw-semibold">Opening Month</label>
+        <input type="month" name="opening_month" class="form-control" value="{{ current_month }}">
+    </div>
+    {% endif %}
+
+    <!-- Submit -->
+    <div class="col-12 d-flex gap-2 mt-2">
+        <button type="submit" class="btn btn-primary">
+            {% if account %}Save Changes{% else %}Create Account{% endif %}
+        </button>
+        <a href="/accounts" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+{% if account and latest_snap %}
+const LATEST_BAL = {{ latest_snap.balance }};
+const ORIG_IN_NW = {{ 'true' if values.include_in_networth else 'false' }};
+const ORIG_TYPE  = '{{ account.account_type }}';
+
+function fmtDollar(val) {
+    return '$' + Math.abs(val).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+function updatePreview() {
+    const inNw  = document.getElementById('includeNetworth').checked;
+    const atype = document.getElementById('accountTypeSelect').value;
+    const sign  = atype === 'asset' ? 1 : -1;
+    const origSign = ORIG_TYPE === 'asset' ? 1 : -1;
+    const newEffect  = inNw  ? sign     * LATEST_BAL : 0;
+    const origEffect = ORIG_IN_NW ? origSign * LATEST_BAL : 0;
+    const delta = newEffect - origEffect;
+    let msg;
+    if (delta !== 0) {
+        msg = 'Saving will ' + (delta > 0 ? 'add ' : 'remove ') + fmtDollar(delta) + ' to net worth';
+    } else if (inNw) {
+        msg = fmtDollar(sign * LATEST_BAL) + (sign > 0 ? ' added to' : ' subtracted from') + ' net worth';
+    } else {
+        msg = 'excluded from net worth';
+    }
+    document.getElementById('previewImpact').textContent = msg;
+}
+
+document.getElementById('includeNetworth').addEventListener('change', updatePreview);
+document.getElementById('accountTypeSelect').addEventListener('change', updatePreview);
+updatePreview();
+{% endif %}
+
+const LIABILITY_CATS = new Set(['mortgage', 'loan', 'credit_card']);
+const TAX_FREE_CATS  = new Set(['roth_ira', 'hsa', '529']);
+const TAX_DEF_CATS   = new Set(['401k', 'ira', 'retirement']);
+const NON_LIQUID     = new Set(['real_estate', 'vehicle', 'retirement', '401k', 'ira', 'roth_ira', 'hsa', '529']);
+const HIDE_TAX_CATS  = new Set(['real_estate', 'mortgage', 'cash', 'checking', 'savings', 'vehicle', 'loan', 'credit_card']);
+
+function applyCategory(cat) {
+    if (!cat) return;
+    const typeEl          = document.getElementById('accountTypeSelect');
+    const taxEl           = document.getElementById('taxStatusSelect');
+    const liquidEl        = document.getElementById('isLiquid');
+    const taxWrapper      = document.getElementById('taxStatusWrapper');
+    const pairedWrapper   = document.getElementById('pairedLiabilityWrapper');
+
+    if (LIABILITY_CATS.has(cat)) {
+        typeEl.value     = 'liability';
+        liquidEl.checked = false;
+    } else {
+        typeEl.value     = 'asset';
+        liquidEl.checked = !NON_LIQUID.has(cat);
+    }
+
+    if (HIDE_TAX_CATS.has(cat)) {
+        taxWrapper.classList.add('d-none');
+        taxEl.value = '';
+    } else {
+        taxWrapper.classList.remove('d-none');
+        if (TAX_FREE_CATS.has(cat)) {
+            taxEl.value = 'tax_free';
+        } else if (TAX_DEF_CATS.has(cat)) {
+            taxEl.value = 'tax_deferred';
+        } else {
+            taxEl.value = 'taxable';
+        }
+    }
+
+    if (pairedWrapper) {
+        pairedWrapper.classList.toggle('d-none', cat !== 'real_estate');
+    }
+}
+
+document.getElementById('categorySelect').addEventListener('change', function () {
+    applyCategory(this.value);
+});
+
+// On load: apply visibility — preserve existing values on edit forms
+(function () {
+    const cat = document.getElementById('categorySelect').value;
+    if (!cat) {
+        const pw = document.getElementById('pairedLiabilityWrapper');
+        if (pw) pw.classList.add('d-none');
+        return;
+    }
+    if (HIDE_TAX_CATS.has(cat)) {
+        document.getElementById('taxStatusWrapper').classList.add('d-none');
+        document.getElementById('taxStatusSelect').value = '';
+    }
+    const pw = document.getElementById('pairedLiabilityWrapper');
+    if (pw) pw.classList.toggle('d-none', cat !== 'real_estate');
+})();
+
+// Allocation split sum validation
+(function () {
+    const inputs = document.querySelectorAll('.alloc-input');
+    const sumEl  = document.getElementById('allocSum');
+    if (!inputs.length || !sumEl) return;
+
+    function updateAllocSum() {
+        const total = Array.from(inputs).reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+        const rounded = Math.round(total * 10) / 10;
+        if (rounded === 0) {
+            sumEl.innerHTML = '<span class="text-muted">Enter percentages summing to 100. Leave blank to skip.</span>';
+        } else if (Math.abs(rounded - 100) < 0.1) {
+            sumEl.innerHTML = '<span class="text-success">✓ Sum: 100%</span>';
+        } else {
+            sumEl.innerHTML = `<span class="text-danger">Sum: ${rounded}% — must equal 100%</span>`;
+        }
+    }
+
+    inputs.forEach(el => el.addEventListener('input', updateAllocSum));
+    updateAllocSum();
+})();
+
+// ── Holdings table (#7) ──────────────────────────────────────────────────
+(function () {
+    const ACCOUNT_ID  = {{ account.id if account else 'null' }};
+    const ALLOC_CLASSES = {{ allocation_classes | tojson }};
+    const AI_CLASSIFY = {{ 'true' if classification_enabled else 'false' }};
+    if (!ACCOUNT_ID || !document.getElementById('holdingsTbody')) return;
+
+    const tbody     = document.getElementById('holdingsTbody');
+    const addRow    = document.getElementById('addHoldingRow');
+    const errEl     = document.getElementById('addHoldingError');
+    const statusEl  = document.getElementById('refreshStatus');
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    function fmtPrice(v) {
+        if (v == null) return '—';
+        return '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+    function fmtValue(v) {
+        if (v == null) return '—';
+        return '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+    }
+    function fmtDate(iso) {
+        if (!iso) return '<span class="text-warning">never</span>';
+        const d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+        const now = new Date();
+        const hrs = (now - d) / 3_600_000;
+        const label = d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+        return hrs > 24
+            ? `<span class="text-warning" title="${iso}">${label}</span>`
+            : `<span class="text-muted" title="${iso}">${label}</span>`;
+    }
+    function allocLabel(allocs) {
+        if (!allocs || !Object.keys(allocs).length) return '<span class="text-warning">unset</span>';
+        const parts = Object.entries(allocs)
+            .filter(([, v]) => v > 0)
+            .map(([k, v]) => `<span class="text-capitalize">${k}</span> ${v}%`)
+            .join(' · ');
+        return parts || '<span class="text-muted">—</span>';
+    }
+
+    // ── Render rows ───────────────────────────────────────────────────────
+
+    function renderRows(holdings) {
+        if (!holdings.length) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-muted small py-2">No holdings yet — add one below.</td></tr>';
+            return;
+        }
+        window._holdingsData = {};
+        holdings.forEach(h => { window._holdingsData[h.id] = h; });
+
+        tbody.innerHTML = holdings.map(h => `
+            <tr data-id="${h.id}">
+                <td class="fw-semibold">${h.ticker}</td>
+                <td class="text-muted small">${h.name || ''}</td>
+                <td class="text-end">${parseFloat(h.shares).toLocaleString('en-US', {maximumFractionDigits: 4})}</td>
+                <td class="text-end">${fmtPrice(h.last_price)}</td>
+                <td class="text-end fw-semibold">${fmtValue(h.value)}</td>
+                <td class="small">${allocLabel(h.allocations)}</td>
+                <td class="small">${fmtDate(h.last_fetched)}</td>
+                <td class="text-nowrap">
+                    <button type="button" class="btn btn-link btn-sm p-0 me-2"
+                            onclick="editHolding(${h.id})">Edit</button>
+                    <button type="button" class="btn btn-link btn-sm p-0 text-danger"
+                            onclick="archiveHolding(${h.id})">Remove</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    // ── Edit holding ──────────────────────────────────────────────────────
+
+    window.editHolding = function(id) {
+        // Toggle off if already open
+        const existing = document.getElementById('edit-panel-' + id);
+        if (existing) { existing.remove(); return; }
+        // Close any other open panels
+        document.querySelectorAll('[id^="edit-panel-"]').forEach(el => el.remove());
+
+        const h = window._holdingsData && window._holdingsData[id];
+        if (!h) return;
+        const allocs = h.allocations || {};
+        const escapedName = (h.name || '').replace(/"/g, '&quot;');
+        const capClass = h.cap_class || '';
+
+        const allocInputs = ALLOC_CLASSES.map(cls => `
+            <div>
+                <label class="form-label small text-capitalize mb-0">${cls}</label>
+                <div class="input-group input-group-sm" style="width:90px">
+                    <input type="number" class="form-control edit-alloc-input"
+                           data-edit-id="${id}" id="edit-alloc-${id}-${cls}"
+                           value="${allocs[cls] || 0}" min="0" max="100" step="0.1" placeholder="0">
+                    <span class="input-group-text">%</span>
+                </div>
+            </div>`).join('');
+
+        const panelHTML = `
+            <tr id="edit-panel-${id}" class="table-warning">
+                <td colspan="8" class="p-2">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-auto">
+                            <div class="fw-semibold">${h.ticker}</div>
+                            <div class="form-text">Ticker (read-only)</div>
+                        </div>
+                        <div class="col">
+                            <label class="form-label small mb-1">Name</label>
+                            <input type="text" id="edit-name-${id}" class="form-control form-control-sm" value="${escapedName}">
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label small mb-1">Shares</label>
+                            <input type="number" id="edit-shares-${id}" class="form-control form-control-sm"
+                                   value="${parseFloat(h.shares)}" min="0" step="any" style="width:110px">
+                        </div>
+                        <div class="col-auto">
+                            <label class="form-label small mb-1">Cap Class</label>
+                            <select id="edit-cap-${id}" class="form-select form-select-sm" style="width:120px">
+                                <option value="">— none —</option>
+                                <option value="large" ${capClass === 'large' ? 'selected' : ''}>Large</option>
+                                <option value="mid"   ${capClass === 'mid'   ? 'selected' : ''}>Mid</option>
+                                <option value="small" ${capClass === 'small' ? 'selected' : ''}>Small</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <label class="form-label small mb-1">Asset Allocation</label>
+                        <div class="d-flex gap-3 flex-wrap align-items-end">${allocInputs}</div>
+                        <div class="small mt-1" id="edit-alloc-sum-${id}"></div>
+                        <div class="small text-warning mt-1 d-none" id="edit-classify-flag-${id}">⚠ Could not classify — set asset allocation manually</div>
+                    </div>
+                    <div class="d-flex gap-2 mt-2 align-items-center">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="saveEditHolding(${id})">Save</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelEditHolding(${id})">Cancel</button>
+                        <span class="text-danger small d-none" id="edit-error-${id}"></span>
+                    </div>
+                </td>
+            </tr>`;
+
+        const currentRow = document.querySelector(`tr[data-id="${id}"]`);
+        if (currentRow) currentRow.insertAdjacentHTML('afterend', panelHTML);
+
+        // Alloc sum live validation
+        document.querySelectorAll(`.edit-alloc-input[data-edit-id="${id}"]`).forEach(inp => {
+            inp.addEventListener('input', () => _updateEditAllocSum(id));
+        });
+        _updateEditAllocSum(id);
+
+        // Try to classify if AI is enabled and allocations are unset
+        if (AI_CLASSIFY) {
+            const hasAllocs = ALLOC_CLASSES.some(cls => (allocs[cls] || 0) > 0);
+            if (!hasAllocs) {
+                fetch(`/api/classify/${encodeURIComponent(h.ticker)}`)
+                    .then(r => r.json())
+                    .then(j => {
+                        const flagEl = document.getElementById(`edit-classify-flag-${id}`);
+                        if (j.manual_required || !j.sector_weights) {
+                            if (flagEl) flagEl.classList.remove('d-none');
+                            return;
+                        }
+                        // Auto-fill the allocation inputs from classification
+                        ALLOC_CLASSES.forEach(cls => {
+                            const el = document.getElementById(`edit-alloc-${id}-${cls}`);
+                            if (el) el.value = j.sector_weights[cls] || 0;
+                        });
+                        _updateEditAllocSum(id);
+                    })
+                    .catch(() => {
+                        const flagEl = document.getElementById(`edit-classify-flag-${id}`);
+                        if (flagEl) flagEl.classList.remove('d-none');
+                    });
+            }
+        }
+    };
+
+    function _updateEditAllocSum(id) {
+        const inputs = document.querySelectorAll(`.edit-alloc-input[data-edit-id="${id}"]`);
+        const total = Array.from(inputs).reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+        const r = Math.round(total * 10) / 10;
+        const el = document.getElementById('edit-alloc-sum-' + id);
+        if (!el) return;
+        if (r === 0) {
+            el.innerHTML = '';
+        } else if (Math.abs(r - 100) < 0.1) {
+            el.innerHTML = '<span class="text-success">✓ 100%</span>';
+        } else {
+            el.innerHTML = `<span class="text-danger">Sum: ${r}% — must equal 100</span>`;
+        }
+    }
+
+    window.cancelEditHolding = function(id) {
+        const panel = document.getElementById('edit-panel-' + id);
+        if (panel) panel.remove();
+    };
+
+    window.saveEditHolding = function(id) {
+        const nameEl   = document.getElementById('edit-name-' + id);
+        const sharesEl = document.getElementById('edit-shares-' + id);
+        const capEl    = document.getElementById('edit-cap-' + id);
+        const errEl    = document.getElementById('edit-error-' + id);
+
+        const shares = parseFloat(sharesEl.value);
+        if (isNaN(shares) || shares <= 0) {
+            errEl.textContent = 'Shares must be > 0.'; errEl.classList.remove('d-none'); return;
+        }
+
+        const allocs = {};
+        ALLOC_CLASSES.forEach(cls => {
+            const v = parseFloat(document.getElementById(`edit-alloc-${id}-${cls}`).value) || 0;
+            if (v > 0) allocs[cls] = v;
+        });
+        const allocSum = Object.values(allocs).reduce((a, b) => a + b, 0);
+        if (allocSum > 0 && Math.abs(allocSum - 100) > 0.5) {
+            errEl.textContent = `Allocation must sum to 100 (got ${allocSum.toFixed(1)}%).`;
+            errEl.classList.remove('d-none'); return;
+        }
+
+        fetch(`/api/holdings/${id}`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: nameEl.value.trim(), shares, cap_class: capEl.value, allocations: allocs}),
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (j.error) { errEl.textContent = j.error; errEl.classList.remove('d-none'); return; }
+            document.getElementById('edit-panel-' + id)?.remove();
+            loadHoldings();
+        })
+        .catch(() => { errEl.textContent = 'Network error — changes not saved.'; errEl.classList.remove('d-none'); });
+    };
+
+    // ── Allocation inputs sync ────────────────────────────────────────────
+    // After holdings load, compute weighted allocation percentages and write
+    // them into the alloc_* inputs so the manual-override section stays in sync.
+
+    function updateAllocInputs(holdings) {
+        const classValues = {};
+        ALLOC_CLASSES.forEach(cls => classValues[cls] = 0);
+        let totalValue = 0;
+        let anyAlloc = false;
+
+        for (const h of holdings) {
+            if (h.value == null || !h.allocations || !Object.keys(h.allocations).length) continue;
+            anyAlloc = true;
+            totalValue += h.value;
+            for (const [cls, pct] of Object.entries(h.allocations)) {
+                if (cls in classValues) classValues[cls] += h.value * pct / 100;
+            }
+        }
+
+        if (!anyAlloc || totalValue === 0) return;
+
+        ALLOC_CLASSES.forEach(cls => {
+            const input = document.querySelector(`[name="alloc_${cls}"]`);
+            if (!input) return;
+            const pct = classValues[cls] / totalValue * 100;
+            input.value = pct > 0.05 ? (Math.round(pct * 10) / 10) : '';
+        });
+
+        // Trigger the existing sum-validation display
+        document.querySelector('.alloc-input')?.dispatchEvent(new Event('input'));
+    }
+
+    // ── Load ──────────────────────────────────────────────────────────────
+
+    function loadHoldings() {
+        fetch(`/api/accounts/${ACCOUNT_ID}/holdings`)
+            .then(r => r.json())
+            .then(holdings => { renderRows(holdings); updateAllocInputs(holdings); })
+            .catch(() => {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-danger small">Failed to load holdings.</td></tr>';
+            });
+    }
+
+    loadHoldings();
+    initSortableTable('holdingsTable');
+
+    // ── Archive ───────────────────────────────────────────────────────────
+
+    window.archiveHolding = function (id) {
+        if (!confirm('Remove this holding?')) return;
+        fetch(`/api/holdings/${id}`, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(() => loadHoldings())
+            .catch(() => alert('Failed to remove holding.'));
+    };
+
+    // ── Add holding UI ────────────────────────────────────────────────────
+
+    document.getElementById('btnAddHolding').addEventListener('click', function () {
+        addRow.classList.remove('d-none');
+        this.classList.add('d-none');
+        document.getElementById('newTicker').focus();
+    });
+
+    document.getElementById('btnCancelHolding').addEventListener('click', function () {
+        addRow.classList.add('d-none');
+        document.getElementById('btnAddHolding').classList.remove('d-none');
+        resetAddRow();
+    });
+
+    function resetAddRow() {
+        document.getElementById('newTicker').value = '';
+        document.getElementById('newName').value   = '';
+        document.getElementById('newShares').value = '';
+        document.getElementById('newPrice').value  = '';
+        document.querySelectorAll('.alloc-class-radio').forEach(r => r.checked = false);
+        document.getElementById('splitInputs').classList.add('d-none');
+        document.querySelectorAll('.split-pct').forEach(el => el.value = '');
+        errEl.classList.add('d-none');
+        const noteEl = document.getElementById('aiClassifiedNote');
+        if (noteEl) noteEl.classList.add('d-none');
+        const flagEl = document.getElementById('manualClassifyFlag');
+        if (flagEl) flagEl.classList.add('d-none');
+    }
+
+    // Fetch price (and optionally AI classification) on ticker blur
+    document.getElementById('newTicker').addEventListener('blur', function () {
+        const ticker = this.value.trim().toUpperCase();
+        if (!ticker) return;
+        this.value = ticker;
+        fetch(`/api/prices/${encodeURIComponent(ticker)}`)
+            .then(r => r.json())
+            .then(j => {
+                if (j.price)  document.getElementById('newPrice').value = j.price.toFixed(2);
+                if (j.name)   document.getElementById('newName').value  = j.name;
+            })
+            .catch(() => {}); // ignore; user can enter manually
+
+        if (!AI_CLASSIFY) return;
+        fetch(`/api/classify/${encodeURIComponent(ticker)}`)
+            .then(r => r.json())
+            .then(j => {
+                const addFlagEl = document.getElementById('manualClassifyFlag');
+                if (j.manual_required || !j.sector_weights) {
+                    if (addFlagEl) addFlagEl.classList.remove('d-none');
+                    return;
+                }
+                if (addFlagEl) addFlagEl.classList.add('d-none');
+                const weights = j.sector_weights;
+                const noteEl = document.getElementById('aiClassifiedNote');
+                // Determine if blended (more than one class with a value > 0)
+                const activeClasses = ALLOC_CLASSES.filter(c => (weights[c] || 0) > 0);
+                if (activeClasses.length === 1) {
+                    // Simple: select the radio
+                    const radio = document.getElementById('radio_' + activeClasses[0]);
+                    if (radio) {
+                        radio.checked = true;
+                        // Ensure split mode is off
+                        if (splitMode) document.getElementById('btnSplit').click();
+                    }
+                } else if (activeClasses.length > 1) {
+                    // Blended: enable split mode and populate
+                    if (!splitMode) document.getElementById('btnSplit').click();
+                    ALLOC_CLASSES.forEach(cls => {
+                        const el = document.getElementById('split_' + cls);
+                        if (el) el.value = weights[cls] || 0;
+                    });
+                    updateSplitSum();
+                }
+                if (noteEl) noteEl.classList.remove('d-none');
+            })
+            .catch(() => {
+                const addFlagEl = document.getElementById('manualClassifyFlag');
+                if (addFlagEl) addFlagEl.classList.remove('d-none');
+            });
+    });
+
+    // Split toggle
+    let splitMode = false;
+    document.getElementById('btnSplit').addEventListener('click', function () {
+        splitMode = !splitMode;
+        document.getElementById('splitInputs').classList.toggle('d-none', !splitMode);
+        document.querySelectorAll('.alloc-class-radio').forEach(r => { r.checked = false; r.closest('.form-check').classList.toggle('d-none', splitMode); });
+        this.textContent = splitMode ? 'Simple' : 'Split…';
+        updateSplitSum();
+    });
+
+    function updateSplitSum() {
+        const total = Array.from(document.querySelectorAll('.split-pct'))
+            .reduce((s, el) => s + (parseFloat(el.value) || 0), 0);
+        const r = Math.round(total * 10) / 10;
+        const el = document.getElementById('splitSumLabel');
+        if (r === 0) {
+            el.textContent = '';
+        } else if (Math.abs(r - 100) < 0.1) {
+            el.innerHTML = '<span class="text-success">✓ 100%</span>';
+        } else {
+            el.innerHTML = `<span class="text-danger">Sum: ${r}% — must equal 100</span>`;
+        }
+    }
+    document.querySelectorAll('.split-pct').forEach(el => el.addEventListener('input', updateSplitSum));
+
+    // Save new holding
+    document.getElementById('btnSaveHolding').addEventListener('click', function () {
+        errEl.classList.add('d-none');
+        const ticker = document.getElementById('newTicker').value.trim().toUpperCase();
+        const name   = document.getElementById('newName').value.trim();
+        const shares = parseFloat(document.getElementById('newShares').value) || 0;
+
+        if (!ticker)     { showErr('Ticker is required.'); return; }
+        if (shares <= 0) { showErr('Shares must be > 0.'); return; }
+
+        // Build allocations
+        const allocs = {};
+        if (splitMode) {
+            ALLOC_CLASSES.forEach(cls => {
+                allocs[cls] = parseFloat(document.getElementById('split_' + cls).value) || 0;
+            });
+            const sum = Object.values(allocs).reduce((a, b) => a + b, 0);
+            if (sum > 0 && Math.abs(sum - 100) > 0.5) {
+                showErr(`Split percentages must sum to 100 (got ${sum.toFixed(1)}%).`);
+                return;
+            }
+        } else {
+            const radio = document.querySelector('.alloc-class-radio:checked');
+            if (radio) allocs[radio.value] = 100;
+        }
+
+        const body = {ticker, name, shares, allocations: allocs};
+
+        fetch(`/api/accounts/${ACCOUNT_ID}/holdings`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        })
+        .then(r => r.json())
+        .then(j => {
+            if (j.error) { showErr(j.error); return; }
+            addRow.classList.add('d-none');
+            document.getElementById('btnAddHolding').classList.remove('d-none');
+            resetAddRow();
+            loadHoldings();
+        })
+        .catch(() => showErr('Network error — holding not saved.'));
+    });
+
+    function showErr(msg) {
+        errEl.textContent = msg;
+        errEl.classList.remove('d-none');
+    }
+
+    // ── Refresh prices ────────────────────────────────────────────────────
+
+    document.getElementById('btnRefreshPrices').addEventListener('click', function () {
+        this.disabled = true;
+        statusEl.textContent = 'Refreshing…';
+        fetch('/api/prices/refresh', {method: 'POST'})
+            .then(r => r.json())
+            .then(j => {
+                statusEl.textContent = `Updated ${j.updated}, skipped ${j.skipped}${j.failed ? ', ' + j.failed + ' failed' : ''}.`;
+                loadHoldings();
+            })
+            .catch(() => { statusEl.textContent = 'Refresh failed.'; })
+            .finally(() => { this.disabled = false; });
+    });
+})();
+</script>
+{% endblock %}
