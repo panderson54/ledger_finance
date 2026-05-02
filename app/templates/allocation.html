@@ -336,6 +336,100 @@
 
     {% endif %}{# /total_invested > 0 #}
 
+    <!-- ── Passive Income Panel ──────────────────────────────────────────────── -->
+    <div class="card mt-4" id="passiveIncomePanel">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">Passive Income</span>
+        <div class="d-flex align-items-center gap-2">
+          <span class="small text-muted" id="incomeLoadStatus">Loading…</span>
+          <button class="btn btn-sm btn-link p-0 text-muted text-decoration-none"
+                  type="button" data-bs-toggle="collapse" data-bs-target="#passiveIncomeBody"
+                  aria-expanded="true">
+            Show/Hide
+          </button>
+        </div>
+      </div>
+      <div class="collapse show" id="passiveIncomeBody">
+
+        <!-- Summary chips -->
+        <div class="card-body pb-0">
+          <div class="row g-3 mb-2" id="incomeSummaryChips"></div>
+        </div>
+
+        <!-- Per-holding table -->
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="dividendTable">
+              <thead class="table-light">
+                <tr>
+                  <th>Ticker</th>
+                  <th class="text-end">Shares</th>
+                  <th class="text-end">Price</th>
+                  <th class="text-end">Yield</th>
+                  <th class="text-end">Annual Income</th>
+                  <th class="text-end">Monthly</th>
+                  <th>Frequency</th>
+                  <th>Type</th>
+                  <th>Tax</th>
+                </tr>
+              </thead>
+              <tbody id="dividendTableBody">
+                <tr><td colspan="9" class="text-center text-muted small py-3">Loading dividend data…</td></tr>
+              </tbody>
+              <tfoot class="table-light fw-semibold" id="dividendTableFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- DRIP Projection -->
+        <div class="card-body border-top pt-3">
+          <div class="fw-semibold mb-3">DRIP Projection</div>
+          <div class="row g-2 align-items-end mb-3">
+            <div class="col-auto">
+              <label class="form-label small mb-1">Price Appreciation</label>
+              <div class="input-group input-group-sm" style="width:140px">
+                <input type="number" id="dripPriceRate" class="form-control"
+                       value="7.0" min="0" max="20" step="0.5">
+                <span class="input-group-text">%/yr</span>
+              </div>
+            </div>
+            <div class="col-auto">
+              <label class="form-label small mb-1">Dividend Growth</label>
+              <div class="input-group input-group-sm" style="width:140px">
+                <input type="number" id="dripDivGrowth" class="form-control"
+                       value="3.0" min="0" max="15" step="0.5">
+                <span class="input-group-text">%/yr</span>
+              </div>
+            </div>
+            <div class="col-auto">
+              <label class="form-label small mb-1">Monthly Contribution</label>
+              <div class="input-group input-group-sm" style="width:150px">
+                <span class="input-group-text">$</span>
+                <input type="number" id="dripContrib" class="form-control"
+                       value="0" min="0" step="100">
+              </div>
+            </div>
+            <div class="col-auto">
+              <label class="form-label small mb-1">Horizon</label>
+              <div class="input-group input-group-sm" style="width:110px">
+                <input type="number" id="dripHorizon" class="form-control"
+                       value="20" min="5" max="30" step="5">
+                <span class="input-group-text">yrs</span>
+              </div>
+            </div>
+            <div class="col-auto">
+              <button class="btn btn-sm btn-outline-primary" id="btnRunDrip">
+                Run Projection
+              </button>
+            </div>
+          </div>
+          <div id="dripChart" style="height:320px"></div>
+          <div class="row g-3 mt-1" id="dripCallouts"></div>
+        </div>
+
+      </div>
+    </div>
+
     <!-- Allocation History chart -->
     <div class="card mt-4">
       <div class="card-header fw-semibold">Asset Allocation Over Time</div>
@@ -563,6 +657,7 @@ new MutationObserver(() => {
   {% if total_invested > 0 %}renderAllocBarChart();{% endif %}
   {% if cap_invested_total > 0 %}renderCapBarChart();{% endif %}
   renderAllocHistoryChart();
+  if (_dripData) renderDripChart(_dripData);
 }).observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
 
 // ── Cash Flow tab charts (lazy: render when tab becomes visible) ─────────────
@@ -681,6 +776,173 @@ document.addEventListener('DOMContentLoaded', function () {
   initSortableTable('byAccountTable');
   initSortableTable('allHoldingsTable');
 });
+
+// ── Passive Income + DRIP ────────────────────────────────────────────────────
+let _dripData = null;
+
+function renderDividendTable(data) {
+  const tbody = document.getElementById('dividendTableBody');
+  const tfoot = document.getElementById('dividendTableFoot');
+  if (!data || !data.by_holding || !data.by_holding.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-3">No holdings with dividend data.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = data.by_holding.map(h => {
+    const taxBadge = h.account_tax_status === 'taxable'
+      ? ' <span class="badge bg-warning text-dark" title="Taxable account">taxable</span>' : '';
+    const yieldFmt = h.is_dividend_payer
+      ? (h.annual_yield * 100).toFixed(2) + '%'
+      : '<span class="text-muted">N/A</span>';
+    const annualFmt = h.is_dividend_payer
+      ? '$' + h.annual_income.toLocaleString('en-US', {maximumFractionDigits: 0})
+      : '<span class="text-muted">—</span>';
+    const monthlyFmt = h.is_dividend_payer
+      ? '$' + h.monthly_income.toFixed(0)
+      : '<span class="text-muted">—</span>';
+    return `<tr>
+      <td class="font-monospace fw-semibold">${h.ticker}</td>
+      <td class="text-end small">${(h.shares).toLocaleString(undefined, {maximumFractionDigits: 4})}</td>
+      <td class="text-end small">$${h.last_price.toFixed(2)}</td>
+      <td class="text-end">${yieldFmt}</td>
+      <td class="text-end">${annualFmt}${taxBadge}</td>
+      <td class="text-end text-muted small">${monthlyFmt}</td>
+      <td class="small text-muted">${h.frequency || '—'}</td>
+      <td class="small text-muted">${h.payer_type || '—'}</td>
+      <td class="small">${h.tax_treatment || '—'}</td>
+    </tr>`;
+  }).join('');
+
+  tfoot.innerHTML = `<tr class="sort-skip">
+    <td colspan="4" class="text-end text-muted small fst-italic">Total</td>
+    <td class="text-end">$${data.total_annual_income.toLocaleString('en-US', {maximumFractionDigits: 0})}/yr</td>
+    <td class="text-end text-muted small">$${data.total_monthly_income.toFixed(0)}/mo</td>
+    <td colspan="3"></td>
+  </tr>`;
+
+  const chips = document.getElementById('incomeSummaryChips');
+  const taxPct = Math.round((data.tax_rate_used || 0.27) * 100);
+  chips.innerHTML = `
+    <div class="col-auto"><div class="card px-3 py-2 text-center">
+      <div class="fw-bold fs-5 text-success">$${data.total_annual_income.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
+      <div class="text-muted small">Annual Income</div>
+    </div></div>
+    <div class="col-auto"><div class="card px-3 py-2 text-center">
+      <div class="fw-bold fs-5">$${data.total_monthly_income.toFixed(0)}</div>
+      <div class="text-muted small">Monthly Income</div>
+    </div></div>
+    <div class="col-auto"><div class="card px-3 py-2 text-center border-warning">
+      <div class="fw-bold fs-5 text-warning">$${data.est_after_tax_annual.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
+      <div class="text-muted small">Est. After-Tax (${taxPct}% rate)</div>
+    </div></div>`;
+
+  if (data.missing_data && data.missing_data.length) {
+    document.getElementById('incomeLoadStatus').textContent =
+      `⚠ ${data.missing_data.length} ticker(s) missing data`;
+  } else {
+    document.getElementById('incomeLoadStatus').textContent = '● Current';
+  }
+}
+
+function renderDripChart(data) {
+  if (!data) return;
+  const ac = axisColor();
+  const gc = gridColor();
+  Plotly.react('dripChart', [
+    {x: data.labels, y: data.drip_on,   name: 'DRIP On',   type: 'scatter', mode: 'lines',
+     line: {color: '#0d6efd', width: 2.5}},
+    {x: data.labels, y: data.drip_off,  name: 'DRIP Off',  type: 'scatter', mode: 'lines',
+     line: {color: '#198754', width: 2, dash: 'dot'}},
+    {x: data.labels, y: data.no_action, name: 'No Action', type: 'scatter', mode: 'lines',
+     line: {color: '#6c757d', width: 1.5, dash: 'dash'}},
+  ], {
+    yaxis: {title: 'Portfolio Value ($)', tickformat: '$,.0f', color: ac, gridcolor: gc},
+    xaxis: {color: ac, showgrid: false},
+    font: {color: ac},
+    legend: {orientation: 'h', y: -0.2},
+    margin: {l: 80, r: 20, t: 10, b: 60},
+    hovermode: 'x unified',
+    plot_bgcolor: 'transparent', paper_bgcolor: 'transparent',
+  }, {responsive: true, displayModeBar: false});
+}
+
+function loadPassiveIncome() {
+  document.getElementById('incomeLoadStatus').textContent = 'Loading…';
+  fetch('/api/passive-income')
+    .then(r => r.json())
+    .then(data => { renderDividendTable(data); })
+    .catch(() => {
+      document.getElementById('incomeLoadStatus').textContent = 'Load failed';
+      document.getElementById('dividendTableBody').innerHTML =
+        '<tr><td colspan="9" class="text-center text-danger small py-3">Failed to load income data.</td></tr>';
+    });
+}
+
+function _seedDripInputs(assumptions) {
+  if (!assumptions) return;
+  if (assumptions.price_appreciation_rate != null)
+    document.getElementById('dripPriceRate').value = assumptions.price_appreciation_rate;
+  if (assumptions.dividend_growth_rate != null)
+    document.getElementById('dripDivGrowth').value = assumptions.dividend_growth_rate;
+  if (assumptions.monthly_contribution != null)
+    document.getElementById('dripContrib').value = assumptions.monthly_contribution;
+}
+
+document.getElementById('btnRunDrip').addEventListener('click', function () {
+  const params = new URLSearchParams({
+    price_appreciation_rate: document.getElementById('dripPriceRate').value,
+    dividend_growth_rate:    document.getElementById('dripDivGrowth').value,
+    monthly_contribution:    document.getElementById('dripContrib').value,
+    horizon_years:           document.getElementById('dripHorizon').value,
+  });
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  fetch('/api/passive-income/projection?' + params)
+    .then(r => r.json())
+    .then(data => {
+      _dripData = data;
+      renderDripChart(data);
+      const co = data.callouts || {};
+      const calloutDiv = document.getElementById('dripCallouts');
+      calloutDiv.innerHTML = [5, 10, 20].map(yr => {
+        const drip = co[`yr${yr}_drip_on`];
+        const base = co[`yr${yr}_drip_off`];
+        const none = co[`yr${yr}_no_action`];
+        if (drip == null) return '';
+        return `
+          <div class="col-auto"><div class="card px-3 py-2 text-center">
+            <div class="fw-bold text-primary">$${drip.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
+            <div class="text-muted small">DRIP On — Yr ${yr}</div>
+          </div></div>
+          <div class="col-auto"><div class="card px-3 py-2 text-center">
+            <div class="fw-bold text-success">$${base.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
+            <div class="text-muted small">DRIP Off — Yr ${yr}</div>
+          </div></div>
+          <div class="col-auto"><div class="card px-3 py-2 text-center">
+            <div class="fw-bold text-secondary">$${(none||0).toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
+            <div class="text-muted small">No Action — Yr ${yr}</div>
+          </div></div>`;
+      }).join('');
+      btn.disabled = false;
+      btn.textContent = 'Run Projection';
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Run Projection';
+    });
+});
+
+// Load saved assumptions and seed inputs, then load income on page ready
+fetch('/api/passive-income/projection?' + new URLSearchParams({horizon_years: 20}))
+  .then(r => r.json())
+  .then(data => {
+    _dripData = data;
+    _seedDripInputs(data.assumptions);
+    renderDripChart(data);
+  })
+  .catch(() => {});
+
+document.addEventListener('DOMContentLoaded', loadPassiveIncome);
 
 // ── Refresh Prices button ─────────────────────────────────────────────────────
 (function () {

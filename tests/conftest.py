@@ -8,7 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import create_app
 from app import db as _db
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, AssetAllocation, AppSetting, TickerClassification
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, AssetAllocation, AppSetting, TickerClassification, DividendData, Holding, HoldingAllocation
 
 
 @pytest.fixture(scope="session")
@@ -36,8 +36,11 @@ def db(app):
         _db.session.query(SpendingEntry).delete()
         _db.session.query(CalculatedMetric).delete()
         _db.session.query(AssetAllocation).delete()
+        _db.session.query(HoldingAllocation).delete()
+        _db.session.query(Holding).delete()
         _db.session.query(Account).delete()
         _db.session.query(TickerClassification).delete()
+        _db.session.query(DividendData).delete()
         _db.session.query(AppSetting).delete()
         _db.session.commit()
 
