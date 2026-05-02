@@ -47,6 +47,45 @@
             </div>
         </div>
 
+        <!-- Net Worth Graph card -->
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">Net Worth Graph</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Choose when in the month your balance snapshots are recorded. This controls how
+                    data points are plotted on the net worth chart — the underlying data is unchanged.
+                </p>
+                <div id="timing-alert" class="alert d-none mb-3" role="alert"></div>
+                <div class="mb-1">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="snapshotTiming"
+                               id="timingEndOfMonth" value="end_of_month"
+                               {% if snapshot_timing == 'end_of_month' %}checked{% endif %}>
+                        <label class="form-check-label" for="timingEndOfMonth">
+                            <strong>End of month</strong>
+                            <span class="text-muted small d-block">
+                                April data is plotted on April 30. Best if you record balances at month-end.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="snapshotTiming"
+                               id="timingStartOfMonth" value="start_of_month"
+                               {% if snapshot_timing == 'start_of_month' %}checked{% endif %}>
+                        <label class="form-check-label" for="timingStartOfMonth">
+                            <strong>Start of month</strong>
+                            <span class="text-muted small d-block">
+                                April data is plotted on April 1. Best if you record balances at month-start.
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-sm" id="saveTimingBtn" type="button">Save</button>
+            </div>
+        </div>
+
         <!-- AI Classification card -->
         <div class="card mb-4">
             <div class="card-header d-flex align-items-center justify-content-between">
@@ -238,6 +277,33 @@ saveBtn.addEventListener('click', async () => {
         showAlert('Network error: ' + e.message, 'danger');
     } finally {
         saveBtn.disabled = false;
+    }
+});
+
+document.getElementById('saveTimingBtn').addEventListener('click', async () => {
+    const timingAlert = document.getElementById('timing-alert');
+    function showTimingAlert(msg, type) {
+        timingAlert.className = `alert alert-${type} mb-3`;
+        timingAlert.textContent = msg;
+        timingAlert.classList.remove('d-none');
+        setTimeout(() => timingAlert.classList.add('d-none'), 4000);
+    }
+    const timing = document.querySelector('input[name="snapshotTiming"]:checked').value;
+    const btn = document.getElementById('saveTimingBtn');
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({snapshot_timing: timing}),
+        });
+        const d = await r.json();
+        if (d.success) showTimingAlert('Saved.', 'success');
+        else showTimingAlert('Save failed.', 'danger');
+    } catch (e) {
+        showTimingAlert('Network error: ' + e.message, 'danger');
+    } finally {
+        btn.disabled = false;
     }
 });
 
