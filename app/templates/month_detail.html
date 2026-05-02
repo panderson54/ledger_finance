@@ -1233,8 +1233,12 @@ document.addEventListener('keydown', function (e) {
 
 function applyDeltaHighlight(row, newBalance, lastBalance) {
     row.classList.remove('table-warning', 'table-danger');
-    const dismissBtn = row.querySelector('.delta-dismiss');
-    if (dismissBtn) dismissBtn.remove();
+    row.querySelector('.delta-dismiss')?.remove();
+    const existingBadge = row.querySelector('.delta-badge');
+    if (existingBadge) {
+        bootstrap.Tooltip.getInstance(existingBadge)?.dispose();
+        existingBadge.remove();
+    }
     if (!lastBalance || lastBalance <= 0) return;
 
     const pct = Math.abs((newBalance - lastBalance) / lastBalance);
@@ -1246,23 +1250,35 @@ function applyDeltaHighlight(row, newBalance, lastBalance) {
     row.classList.add('table-' + level);
     const dir = newBalance > lastBalance ? '↑' : '↓';
     const pctStr = (pct * 100).toFixed(1);
+
+    // Always-visible inline badge on the balance cell
     const balanceCell = row.querySelector('.balance-cell');
     if (balanceCell) {
-        balanceCell.setAttribute('title', `${dir}${pctStr}% from last month — is this correct?`);
-        balanceCell.setAttribute('data-bs-toggle', 'tooltip');
-        new bootstrap.Tooltip(balanceCell, {trigger: 'hover'});
+        const badge = document.createElement('span');
+        badge.className = `delta-badge ms-2 badge ${level === 'danger' ? 'text-bg-danger' : 'text-bg-warning'} fw-normal`;
+        badge.style.fontSize = '.7em';
+        badge.textContent = `⚠ ${dir}${pctStr}%`;
+        badge.setAttribute('data-bs-toggle', 'tooltip');
+        badge.setAttribute('data-bs-placement', 'top');
+        badge.setAttribute('title', `${dir}${pctStr}% change from last month — large movement flagged for review`);
+        new bootstrap.Tooltip(badge, {trigger: 'hover'});
+        balanceCell.appendChild(badge);
     }
+
     // Dismiss button
     const btn = document.createElement('button');
     btn.className = 'btn btn-link btn-sm delta-dismiss p-0 ms-2 text-reset';
     btn.innerHTML = '✕';
-    btn.title = 'Dismiss';
+    btn.title = 'Dismiss warning';
     btn.onclick = function(e) {
         e.stopPropagation();
         row.classList.remove('table-warning', 'table-danger');
         btn.remove();
-        const tt = bootstrap.Tooltip.getInstance(balanceCell);
-        if (tt) tt.dispose();
+        const badge = row.querySelector('.delta-badge');
+        if (badge) {
+            bootstrap.Tooltip.getInstance(badge)?.dispose();
+            badge.remove();
+        }
     };
     row.cells[row.cells.length - 1].appendChild(btn);
 }
