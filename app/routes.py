@@ -12,6 +12,7 @@ from app import db
 from app.import_processor import process_csv, preview_csv
 from app import projections as proj
 from datetime import datetime, date
+import calendar
 from decimal import Decimal
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import func
@@ -759,12 +760,21 @@ def visualizations():
 # Existing API endpoints
 # ---------------------------------------------------------------------------
 
+def _month_display_date(d):
+    """Return the chart display date for a first-of-month date per the snapshot_timing setting."""
+    timing = _get_app_setting('snapshot_timing', 'end_of_month')
+    if timing == 'end_of_month':
+        last_day = calendar.monthrange(d.year, d.month)[1]
+        return d.replace(day=last_day)
+    return d
+
+
 @main_bp.route('/api/networth-history')
 def networth_history():
     """API endpoint: Get net worth history for charts"""
     metrics = CalculatedMetric.query.order_by(CalculatedMetric.metric_date).all()
     data = {
-        'dates': [m.metric_date.strftime('%Y-%m-%d') for m in metrics],
+        'dates': [_month_display_date(m.metric_date).strftime('%Y-%m-%d') for m in metrics],
         'net_worth': [float(m.net_worth) if m.net_worth else 0 for m in metrics],
         'net_worth_non_re': [float(m.net_worth_non_re) if m.net_worth_non_re else 0 for m in metrics]
     }
@@ -2842,7 +2852,9 @@ def settings_page():
     """App settings: AI classification toggle and API key management."""
     enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
     api_key_set = bool(_get_app_setting('anthropic_api_key'))
-    return render_template('settings.html', classification_enabled=enabled, api_key_set=api_key_set)
+    snapshot_timing = _get_app_setting('snapshot_timing', 'end_of_month')
+    return render_template('settings.html', classification_enabled=enabled, api_key_set=api_key_set,
+                           snapshot_timing=snapshot_timing)
 
 
 @main_bp.route('/api/classifications')
@@ -2878,6 +2890,12 @@ def api_settings_save():
         if key:  # blank means "keep existing"
             _set_app_setting('anthropic_api_key', key,
                              'Anthropic API key for ticker classification')
+
+    if 'snapshot_timing' in data:
+        val = data['snapshot_timing']
+        if val in ('start_of_month', 'end_of_month'):
+            _set_app_setting('snapshot_timing', val,
+                             'Whether monthly snapshots represent start or end of month for charting')
 
     logger.info('Settings saved: classification_enabled=%s',
                 _get_app_setting('claude_classification_enabled', 'false'))

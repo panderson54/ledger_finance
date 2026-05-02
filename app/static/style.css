@@ -627,6 +627,17 @@ a.text-muted:hover { color: #09090b !important; }
   --bs-table-color: #a1a1aa;
 }
 
+[data-bs-theme="dark"] tr.table-warning > td,
+[data-bs-theme="dark"] tr.table-warning > th {
+  --bs-table-bg: rgba(113, 63, 18, 0.35);
+  background-color: rgba(113, 63, 18, 0.35) !important;
+}
+[data-bs-theme="dark"] tr.table-danger > td,
+[data-bs-theme="dark"] tr.table-danger > th {
+  --bs-table-bg: rgba(127, 29, 29, 0.35);
+  background-color: rgba(127, 29, 29, 0.35) !important;
+}
+
 [data-bs-theme="dark"] .badge-soft-success { background: #14532d; color: #86efac; }
 [data-bs-theme="dark"] .badge-soft-danger  { background: #7f1d1d; color: #fca5a5; }
 [data-bs-theme="dark"] .badge-soft-warning { background: #78350f; color: #fcd34d; }
