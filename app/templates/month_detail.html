@@ -1018,7 +1018,7 @@ document.getElementById('saveSnapshotBtn').addEventListener('click', function ()
                 const display = row.querySelector('.balance-display');
                 if (display) display.textContent =
                     '$' + balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-                const editBtn = row.querySelector('[data-snapshot-id]');
+                const editBtn = row.querySelector('button[data-snapshot-id]');
                 if (editBtn) editBtn.dataset.balance = balance;
                 const cell = row.querySelector('.balance-cell');
                 if (cell) {
@@ -1277,7 +1277,7 @@ function saveSnapshotInline(id, balance, cell) {
             // Update the balance display and modal data attribute
             const display = cell.querySelector('.balance-display');
             if (display) display.textContent = '$' + balance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-            const editBtn = cell.closest('tr').querySelector('[data-snapshot-id]');
+            const editBtn = cell.closest('tr').querySelector('button[data-snapshot-id]');
             if (editBtn) editBtn.dataset.balance = balance;
 
             // #58 Delta highlight
