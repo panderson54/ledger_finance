@@ -1,6 +1,6 @@
-# Leisure Finance
+# Ledger Finance
 
-[![CI](https://github.com/your-username/leisure_finance/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/leisure_finance/actions/workflows/ci.yml)
+[![CI](https://github.com/your-username/ledger_finance/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/ledger_finance/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 
@@ -8,7 +8,7 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 
 > **Security Notice**
 >
-> Leisure Finance has **no built-in authentication**. It is designed for use on a trusted local network or behind a VPN. **Do not expose this application to the public internet** without first adding authentication (e.g. HTTP Basic Auth in Nginx, [Authelia](https://www.authelia.com/), or a self-hosted VPN like WireGuard/Tailscale). Exposing your personal financial data without a password is a significant security risk.
+> Ledger Finance has **no built-in authentication**. It is designed for use on a trusted local network or behind a VPN. **Do not expose this application to the public internet** without first adding authentication (e.g. HTTP Basic Auth in Nginx, [Authelia](https://www.authelia.com/), or a self-hosted VPN like WireGuard/Tailscale). Exposing your personal financial data without a password is a significant security risk.
 
 ---
 
@@ -62,8 +62,8 @@ python scripts/seed_demo.py
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/leisure_finance.git
-cd leisure_finance
+git clone https://github.com/your-username/ledger_finance.git
+cd ledger_finance
 python3 -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -119,7 +119,7 @@ CSV import is idempotent — re-importing the same data upserts without duplicat
 ## Project Structure
 
 ```
-leisure_finance/
+ledger_finance/
 ├── app/
 │   ├── __init__.py           # Flask app factory
 │   ├── models.py             # SQLAlchemy models
@@ -159,7 +159,7 @@ Metrics are automatically recalculated whenever a snapshot or spending entry is 
 
 ### Security Before You Deploy
 
-Leisure Finance is a **local-network application**. Before exposing it on any network:
+Ledger Finance is a **local-network application**. Before exposing it on any network:
 
 - It has no login screen, session management, or user accounts
 - Anyone who can reach the app's IP and port can read and modify all your financial data
@@ -173,7 +173,7 @@ Optional hardening: add [HTTP Basic Auth to Nginx](https://docs.nginx.com/nginx/
 
 ### Docker (Quickest Setup)
 
-The fastest way to run Leisure Finance on any machine with Docker installed.
+The fastest way to run Ledger Finance on any machine with Docker installed.
 
 **1. Generate a secret key:**
 
@@ -203,7 +203,7 @@ To update after a code change: `docker compose build && docker compose up -d`.
 
 ### Raspberry Pi (Recommended for Self-Hosting)
 
-Deploy Leisure Finance as a persistent web server on a Raspberry Pi using Gunicorn (app server) and Nginx (reverse proxy). This replaces Flask's built-in dev server with a production-grade setup.
+Deploy Ledger Finance as a persistent web server on a Raspberry Pi using Gunicorn (app server) and Nginx (reverse proxy). This replaces Flask's built-in dev server with a production-grade setup.
 
 #### Architecture
 
@@ -238,8 +238,8 @@ sudo apt install -y python3-pip python3-venv git nginx libopenblas-dev
 
 ```bash
 cd /home/your-username
-git clone https://github.com/your-username/leisure_finance.git
-cd leisure_finance
+git clone https://github.com/your-username/ledger_finance.git
+cd ledger_finance
 ```
 
 #### Step 3: Python Virtual Environment & Dependencies
@@ -267,22 +267,22 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 Copy the output, then create the `.env` file:
 
 ```bash
-nano /home/your-username/leisure_finance/.env
+nano /home/your-username/ledger_finance/.env
 ```
 
 Add the following, pasting your generated key:
 
 ```
 SECRET_KEY=<paste-generated-key-here>
-DATABASE_URL=sqlite:////home/your-username/leisure_finance/data/finance.db
+DATABASE_URL=sqlite:////home/your-username/ledger_finance/data/finance.db
 FLASK_ENV=production
 ```
 
 Ensure the data and logs directories exist:
 
 ```bash
-mkdir -p /home/your-username/leisure_finance/data
-mkdir -p /home/your-username/leisure_finance/logs
+mkdir -p /home/your-username/ledger_finance/data
+mkdir -p /home/your-username/ledger_finance/logs
 ```
 
 #### Step 5: Fix Home Directory Permissions
@@ -298,7 +298,7 @@ sudo chmod o+x /home/your-username
 #### Step 6: Initialize the Database
 
 ```bash
-cd /home/your-username/leisure_finance
+cd /home/your-username/ledger_finance
 source venv/bin/activate
 flask db upgrade
 ```
@@ -308,14 +308,14 @@ flask db upgrade
 Before setting up the service, verify Gunicorn can serve the app:
 
 ```bash
-cd /home/your-username/leisure_finance
+cd /home/your-username/ledger_finance
 source venv/bin/activate
-/home/your-username/leisure_finance/venv/bin/gunicorn --bind 0.0.0.0:5001 --workers 2 "run:app"
+/home/your-username/ledger_finance/venv/bin/gunicorn --bind 0.0.0.0:5001 --workers 2 "run:app"
 ```
 
 Visit `http://<pi-ip-address>:5001` in your browser. If the app loads, kill it with `Ctrl+C` and continue.
 
-> **Always use the full venv path** (`/home/your-username/leisure_finance/venv/bin/gunicorn`) rather than just `gunicorn`, to ensure it uses the venv's Python where all dependencies are installed.
+> **Always use the full venv path** (`/home/your-username/ledger_finance/venv/bin/gunicorn`) rather than just `gunicorn`, to ensure it uses the venv's Python where all dependencies are installed.
 
 > **Worker count:** 2 workers is a safe default for a Pi. The general formula is `(2 × CPU cores) + 1`, but Pi resources are limited.
 
@@ -324,28 +324,28 @@ Visit `http://<pi-ip-address>:5001` in your browser. If the app loads, kill it w
 This makes Gunicorn start automatically on boot and restart on failure.
 
 ```bash
-sudo nano /etc/systemd/system/leisure_finance.service
+sudo nano /etc/systemd/system/ledger_finance.service
 ```
 
 Paste the following, replacing `your-username` with your actual username:
 
 ```ini
 [Unit]
-Description=Leisure Finance - Personal Finance Dashboard
+Description=Ledger Finance - Personal Finance Dashboard
 After=network.target
 
 [Service]
 User=your-username
 Group=www-data
-WorkingDirectory=/home/your-username/leisure_finance
-Environment="PATH=/home/your-username/leisure_finance/venv/bin"
-EnvironmentFile=/home/your-username/leisure_finance/.env
-ExecStart=/home/your-username/leisure_finance/venv/bin/gunicorn \
+WorkingDirectory=/home/your-username/ledger_finance
+Environment="PATH=/home/your-username/ledger_finance/venv/bin"
+EnvironmentFile=/home/your-username/ledger_finance/.env
+ExecStart=/home/your-username/ledger_finance/venv/bin/gunicorn \
     --workers 2 \
-    --bind unix:/home/your-username/leisure_finance/leisure_finance.sock \
+    --bind unix:/home/your-username/ledger_finance/ledger_finance.sock \
     --umask 007 \
-    --access-logfile /home/your-username/leisure_finance/logs/access.log \
-    --error-logfile /home/your-username/leisure_finance/logs/error.log \
+    --access-logfile /home/your-username/ledger_finance/logs/access.log \
+    --error-logfile /home/your-username/ledger_finance/logs/error.log \
     run:app
 Restart=always
 
@@ -359,9 +359,9 @@ Enable and start the service:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable leisure_finance
-sudo systemctl start leisure_finance
-sudo systemctl status leisure_finance
+sudo systemctl enable ledger_finance
+sudo systemctl start ledger_finance
+sudo systemctl status ledger_finance
 ```
 
 You should see `active (running)` in the output.
@@ -373,7 +373,7 @@ You should see `active (running)` in the output.
 Create a new Nginx site config:
 
 ```bash
-sudo nano /etc/nginx/sites-available/leisure_finance
+sudo nano /etc/nginx/sites-available/ledger_finance
 ```
 
 Paste the following, replacing `your-username` with your actual username:
@@ -384,14 +384,14 @@ server {
     server_name _;
 
     location /static/ {
-        alias /home/your-username/leisure_finance/app/static/;
+        alias /home/your-username/ledger_finance/app/static/;
         expires 30d;
         add_header Cache-Control "public, immutable";
     }
 
     location / {
         include proxy_params;
-        proxy_pass http://unix:/home/your-username/leisure_finance/leisure_finance.sock;
+        proxy_pass http://unix:/home/your-username/ledger_finance/ledger_finance.sock;
         proxy_read_timeout 120s;
         proxy_connect_timeout 10s;
     }
@@ -401,7 +401,7 @@ server {
 Enable the site and remove the default:
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/leisure_finance /etc/nginx/sites-enabled/
+sudo ln -s /etc/nginx/sites-available/ledger_finance /etc/nginx/sites-enabled/
 sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -t          # Test config — should print "ok"
 sudo systemctl restart nginx
@@ -412,7 +412,7 @@ sudo systemctl enable nginx
 
 1. Find your Pi's local IP address: `hostname -I`
 2. On any device on the same network, open `http://<pi-ip-address>` in a browser.
-3. Leisure Finance should load via port 80 (no port number needed in the URL).
+3. Ledger Finance should load via port 80 (no port number needed in the URL).
 
 #### Step 11: (Optional) Assign a Static IP to the Pi
 
@@ -426,82 +426,82 @@ Install `avahi-daemon` so you can reach the Pi by name instead of IP:
 sudo apt install -y avahi-daemon
 ```
 
-To set a custom hostname (e.g. access via `http://leisure-finance.local`):
+To set a custom hostname (e.g. access via `http://ledger-finance.local`):
 
 ```bash
-sudo hostnamectl set-hostname leisure-finance
+sudo hostnamectl set-hostname ledger-finance
 sudo systemctl restart avahi-daemon
 ```
 
-> **Pi-hole compatibility:** Pi-hole and Leisure Finance can run on the same Pi without conflict. Pi-hole uses port 80 for its own admin UI by default — if you install both, configure Pi-hole to use a different port (e.g. 8080) before setting up Nginx for Leisure Finance.
+> **Pi-hole compatibility:** Pi-hole and Ledger Finance can run on the same Pi without conflict. Pi-hole uses port 80 for its own admin UI by default — if you install both, configure Pi-hole to use a different port (e.g. 8080) before setting up Nginx for Ledger Finance.
 
 #### Quick Restart Reference
 
-If the Pi reboots, both Nginx and the Leisure Finance service are set to start automatically via systemd (`enable` was run during setup). You shouldn't need to do anything.
+If the Pi reboots, both Nginx and the Ledger Finance service are set to start automatically via systemd (`enable` was run during setup). You shouldn't need to do anything.
 
 If something isn't working after a reboot, run these in order:
 
 ```bash
 # 1. Check if Gunicorn is running
-sudo systemctl status leisure_finance
+sudo systemctl status ledger_finance
 
 # 2. Check if Nginx is running
 sudo systemctl status nginx
 
 # 3. If either is stopped, restart it
-sudo systemctl start leisure_finance
+sudo systemctl start ledger_finance
 sudo systemctl start nginx
 
 # 4. If you made code or config changes, do a full restart
-sudo systemctl restart leisure_finance
+sudo systemctl restart ledger_finance
 sudo systemctl reload nginx
 ```
 
 To manually restart everything at once:
 
 ```bash
-sudo systemctl restart leisure_finance && sudo systemctl reload nginx
+sudo systemctl restart ledger_finance && sudo systemctl reload nginx
 ```
 
 #### Updating the App
 
 ```bash
-cd /home/your-username/leisure_finance
+cd /home/your-username/ledger_finance
 git pull origin main
 source venv/bin/activate
 TMPDIR=/home/your-username/tmp pip install -r requirements.txt   # If dependencies changed
 flask db upgrade                                                   # If models changed
-sudo systemctl restart leisure_finance
+sudo systemctl restart ledger_finance
 ```
 
 #### Useful Management Commands
 
 ```bash
 # View Gunicorn service status
-sudo systemctl status leisure_finance
+sudo systemctl status ledger_finance
 
 # View application logs
-tail -f /home/your-username/leisure_finance/logs/error.log
-tail -f /home/your-username/leisure_finance/logs/access.log
+tail -f /home/your-username/ledger_finance/logs/error.log
+tail -f /home/your-username/ledger_finance/logs/access.log
 
 # View Nginx logs
 sudo tail -f /var/log/nginx/error.log
 
 # Check socket exists and permissions
-ls -la /home/your-username/leisure_finance/leisure_finance.sock
+ls -la /home/your-username/ledger_finance/ledger_finance.sock
 ```
 
 #### Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| 502 Bad Gateway | Run `sudo systemctl status leisure_finance` — is Gunicorn running? Two common causes: (1) home directory permissions — run `sudo chmod o+x /home/your-username`; (2) socket permissions — ensure `--umask 007` is present in the `ExecStart` line of `leisure_finance.service` (without it the socket is created `644` and Nginx can't write to it) |
-| `No module named 'flask'` on startup | Dependencies not installed in venv. Run `TMPDIR=/home/your-username/tmp /home/your-username/leisure_finance/venv/bin/pip install -r requirements.txt` |
-| `libopenblas.so.0` error | Run `sudo apt install -y libopenblas-dev` then `sudo systemctl restart leisure_finance` |
+| 502 Bad Gateway | Run `sudo systemctl status ledger_finance` — is Gunicorn running? Two common causes: (1) home directory permissions — run `sudo chmod o+x /home/your-username`; (2) socket permissions — ensure `--umask 007` is present in the `ExecStart` line of `ledger_finance.service` (without it the socket is created `644` and Nginx can't write to it) |
+| `No module named 'flask'` on startup | Dependencies not installed in venv. Run `TMPDIR=/home/your-username/tmp /home/your-username/ledger_finance/venv/bin/pip install -r requirements.txt` |
+| `libopenblas.so.0` error | Run `sudo apt install -y libopenblas-dev` then `sudo systemctl restart ledger_finance` |
 | `No space left on device` during pip install | `/tmp` is full (RAM-backed). Use `TMPDIR=/home/your-username/tmp pip install ...` instead |
 | App loads but no styles | Verify the `/static/` alias path in Nginx matches your actual static folder |
 | Can't reach Pi from network | Confirm Pi's IP with `hostname -I`; check your router firewall isn't blocking port 80 |
-| Database errors after update | Run `flask db upgrade` then `sudo systemctl restart leisure_finance` |
+| Database errors after update | Run `flask db upgrade` then `sudo systemctl restart ledger_finance` |
 
 ---
 
