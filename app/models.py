@@ -273,6 +273,64 @@ class RecurringEntry(db.Model):
         return f'<RecurringEntry {self.account_name}: ${self.amount} ({self.entry_type})>'
 
 
+class HysaAccount(db.Model):
+    """
+    High-yield savings / money-market account for portfolio income tracking.
+    Interest income = balance × apy.
+    """
+    __tablename__ = 'hysa_accounts'
+
+    id          = db.Column(db.Integer, primary_key=True)
+    name        = db.Column(db.String(100), nullable=False)
+    institution = db.Column(db.String(100))
+    balance     = db.Column(db.Numeric(14, 2), default=0, nullable=False)
+    apy         = db.Column(db.Numeric(7, 5), default=0, nullable=False)  # decimal, e.g. 0.04750
+    is_active   = db.Column(db.Boolean, default=True, nullable=False)
+    notes       = db.Column(db.Text)
+    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def annual_interest(self):
+        return float(self.balance or 0) * float(self.apy or 0)
+
+    @property
+    def monthly_interest(self):
+        return self.annual_interest / 12
+
+    def __repr__(self):
+        return f'<HysaAccount {self.name} apy={self.apy}>'
+
+
+class RentalProperty(db.Model):
+    """
+    Real estate rental property for passive income tracking.
+    Net annual income = monthly_rent × (1 - vacancy_rate) × 12.
+    """
+    __tablename__ = 'rental_properties'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    name          = db.Column(db.String(100), nullable=False)
+    address       = db.Column(db.String(200))
+    monthly_rent  = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    vacancy_rate  = db.Column(db.Numeric(5, 4), default=0.05, nullable=False)  # e.g. 0.0500 = 5%
+    is_active     = db.Column(db.Boolean, default=True, nullable=False)
+    notes         = db.Column(db.Text)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def effective_monthly(self):
+        return float(self.monthly_rent or 0) * (1 - float(self.vacancy_rate or 0))
+
+    @property
+    def annual_income(self):
+        return self.effective_monthly * 12
+
+    def __repr__(self):
+        return f'<RentalProperty {self.name}>'
+
+
 class ImportLog(db.Model):
     """
     Tracks data imports for auditing and debugging

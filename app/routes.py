@@ -7,7 +7,7 @@ import re
 import csv
 from flask import Blueprint, render_template, jsonify, request, flash, redirect, url_for, make_response
 from werkzeug.utils import secure_filename
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData, HysaAccount, RentalProperty
 from app import db
 from app.import_processor import process_csv, preview_csv
 from app import projections as proj
@@ -3145,3 +3145,143 @@ def api_passive_income_projection():
         'horizon_years':           horizon_years,
     }
     return jsonify(result)
+
+
+# ── Portfolio Income (HYSA / savings interest) ────────────────────────────────
+
+def _hysa_to_dict(acct):
+    return {
+        'id':               acct.id,
+        'name':             acct.name,
+        'institution':      acct.institution,
+        'balance':          float(acct.balance or 0),
+        'apy':              float(acct.apy or 0),
+        'is_active':        acct.is_active,
+        'notes':            acct.notes,
+        'annual_interest':  acct.annual_interest,
+        'monthly_interest': acct.monthly_interest,
+    }
+
+
+@main_bp.route('/api/portfolio-income', methods=['GET'])
+def api_portfolio_income_list():
+    accounts = HysaAccount.query.filter_by(is_active=True).order_by(HysaAccount.name).all()
+    rows = [_hysa_to_dict(a) for a in accounts]
+    total_annual  = sum(r['annual_interest']  for r in rows)
+    total_monthly = sum(r['monthly_interest'] for r in rows)
+    return jsonify({'accounts': rows, 'total_annual': total_annual, 'total_monthly': total_monthly})
+
+
+@main_bp.route('/api/portfolio-income', methods=['POST'])
+def api_portfolio_income_create():
+    data = request.get_json(force=True)
+    acct = HysaAccount(
+        name=        data.get('name', '').strip(),
+        institution= data.get('institution', '').strip() or None,
+        balance=     float(data.get('balance') or 0),
+        apy=         float(data.get('apy') or 0) / 100,  # UI sends percent, store decimal
+        notes=       data.get('notes', '').strip() or None,
+    )
+    if not acct.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.add(acct)
+    db.session.commit()
+    return jsonify(_hysa_to_dict(acct)), 201
+
+
+@main_bp.route('/api/portfolio-income/<int:acct_id>', methods=['PUT'])
+def api_portfolio_income_update(acct_id):
+    acct = HysaAccount.query.get_or_404(acct_id)
+    data = request.get_json(force=True)
+    if 'name' in data:
+        acct.name = data['name'].strip()
+    if 'institution' in data:
+        acct.institution = data['institution'].strip() or None
+    if 'balance' in data:
+        acct.balance = float(data['balance'] or 0)
+    if 'apy' in data:
+        acct.apy = float(data['apy'] or 0) / 100
+    if 'notes' in data:
+        acct.notes = data['notes'].strip() or None
+    if not acct.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.commit()
+    return jsonify(_hysa_to_dict(acct))
+
+
+@main_bp.route('/api/portfolio-income/<int:acct_id>', methods=['DELETE'])
+def api_portfolio_income_delete(acct_id):
+    acct = HysaAccount.query.get_or_404(acct_id)
+    db.session.delete(acct)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+# ── Rental Income (real estate) ───────────────────────────────────────────────
+
+def _rental_to_dict(prop):
+    return {
+        'id':               prop.id,
+        'name':             prop.name,
+        'address':          prop.address,
+        'monthly_rent':     float(prop.monthly_rent or 0),
+        'vacancy_rate':     float(prop.vacancy_rate or 0),
+        'is_active':        prop.is_active,
+        'notes':            prop.notes,
+        'effective_monthly': prop.effective_monthly,
+        'annual_income':    prop.annual_income,
+    }
+
+
+@main_bp.route('/api/rental-income', methods=['GET'])
+def api_rental_income_list():
+    properties = RentalProperty.query.filter_by(is_active=True).order_by(RentalProperty.name).all()
+    rows = [_rental_to_dict(p) for p in properties]
+    total_annual  = sum(r['annual_income']    for r in rows)
+    total_monthly = sum(r['effective_monthly'] for r in rows)
+    return jsonify({'properties': rows, 'total_annual': total_annual, 'total_monthly': total_monthly})
+
+
+@main_bp.route('/api/rental-income', methods=['POST'])
+def api_rental_income_create():
+    data = request.get_json(force=True)
+    prop = RentalProperty(
+        name=         data.get('name', '').strip(),
+        address=      data.get('address', '').strip() or None,
+        monthly_rent= float(data.get('monthly_rent') or 0),
+        vacancy_rate= float(data.get('vacancy_rate') or 5) / 100,  # UI sends percent, store decimal
+        notes=        data.get('notes', '').strip() or None,
+    )
+    if not prop.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.add(prop)
+    db.session.commit()
+    return jsonify(_rental_to_dict(prop)), 201
+
+
+@main_bp.route('/api/rental-income/<int:prop_id>', methods=['PUT'])
+def api_rental_income_update(prop_id):
+    prop = RentalProperty.query.get_or_404(prop_id)
+    data = request.get_json(force=True)
+    if 'name' in data:
+        prop.name = data['name'].strip()
+    if 'address' in data:
+        prop.address = data['address'].strip() or None
+    if 'monthly_rent' in data:
+        prop.monthly_rent = float(data['monthly_rent'] or 0)
+    if 'vacancy_rate' in data:
+        prop.vacancy_rate = float(data['vacancy_rate'] or 0) / 100
+    if 'notes' in data:
+        prop.notes = data['notes'].strip() or None
+    if not prop.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.commit()
+    return jsonify(_rental_to_dict(prop))
+
+
+@main_bp.route('/api/rental-income/<int:prop_id>', methods=['DELETE'])
+def api_rental_income_delete(prop_id):
+    prop = RentalProperty.query.get_or_404(prop_id)
+    db.session.delete(prop)
+    db.session.commit()
+    return jsonify({'ok': True})
