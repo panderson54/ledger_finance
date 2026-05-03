@@ -223,6 +223,36 @@ class TickerClassification(db.Model):
         return f'<TickerClassification {self.ticker} → {self.asset_class}>'
 
 
+class DividendData(db.Model):
+    """
+    Cached dividend data per ticker, populated by Claude Haiku on demand.
+    One row per unique ticker; 30-day TTL for staleness checks.
+    """
+    __tablename__ = 'dividend_data'
+
+    id                 = db.Column(db.Integer, primary_key=True)
+    ticker             = db.Column(db.String(20), nullable=False, unique=True)
+    annual_yield       = db.Column(db.Numeric(8, 6))       # decimal, e.g. 0.035000 = 3.5%
+    dividend_per_share = db.Column(db.Numeric(10, 4))      # most recent annual DPS
+    frequency          = db.Column(db.String(20))          # monthly|quarterly|semi-annual|annual
+    payer_type         = db.Column(db.String(30))          # dividend_stock|reit|etf|bond_fund|cef
+    is_dividend_payer  = db.Column(db.Boolean, nullable=False, default=True)
+    tax_treatment      = db.Column(db.String(20))          # qualified|ordinary|return_of_capital
+    source_notes       = db.Column(db.Text)                # JSON: {ttm_yield, payout_ratio, cut_risk, as_of_date}
+    last_fetched_at    = db.Column(db.DateTime)
+    created_at         = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def notes_dict(self) -> dict:
+        import json
+        try:
+            return json.loads(self.source_notes) if self.source_notes else {}
+        except Exception:
+            return {}
+
+    def __repr__(self):
+        return f'<DividendData {self.ticker} yield={self.annual_yield}>'
+
+
 class RecurringEntry(db.Model):
     """
     Template entries automatically applied when a new month is initialized.
