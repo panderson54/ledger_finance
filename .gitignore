@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+env/
+
+# Environment variables
+.env
+
+# Application data
+data/
+
+# Logs
+logs/
+
+# Local deployment scripts (Pi-specific, not for version control)
+scripts/deploy.sh
+scripts/ledger-update.service
+scripts/ledger-update.timer
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
