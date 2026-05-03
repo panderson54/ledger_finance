@@ -343,6 +343,7 @@ EnvironmentFile=/home/your-username/ledger/.env
 ExecStart=/home/your-username/ledger/venv/bin/gunicorn \
     --workers 2 \
     --bind unix:/home/your-username/ledger/ledger.sock \
+    --umask 007 \
     --access-logfile /home/your-username/ledger/logs/access.log \
     --error-logfile /home/your-username/ledger/logs/error.log \
     run:app
@@ -351,6 +352,8 @@ Restart=always
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **Why `--umask 007`?** Gunicorn creates the Unix socket file with the system's default umask (`022`), which gives the socket `644` permissions (`rw-r--r--`). The `www-data` group (Nginx's user) would only have *read* access, but connecting to a Unix socket requires *write* permission — causing a 502 even when Gunicorn is running. `--umask 007` creates the socket with `660` (`rw-rw----`), giving the `www-data` group the write access it needs.
 
 Enable and start the service:
 
@@ -492,7 +495,7 @@ ls -la /home/your-username/ledger/ledger.sock
 
 | Symptom | Check |
 |---|---|
-| 502 Bad Gateway | Run `sudo systemctl status ledger` — is Gunicorn running? Also run `sudo chmod o+x /home/your-username` (home directory permissions is a common cause) |
+| 502 Bad Gateway | Run `sudo systemctl status ledger` — is Gunicorn running? Two common causes: (1) home directory permissions — run `sudo chmod o+x /home/your-username`; (2) socket permissions — ensure `--umask 007` is present in the `ExecStart` line of `ledger.service` (without it the socket is created `644` and Nginx can't write to it) |
 | `No module named 'flask'` on startup | Dependencies not installed in venv. Run `TMPDIR=/home/your-username/tmp /home/your-username/ledger/venv/bin/pip install -r requirements.txt` |
 | `libopenblas.so.0` error | Run `sudo apt install -y libopenblas-dev` then `sudo systemctl restart ledger` |
 | `No space left on device` during pip install | `/tmp` is full (RAM-backed). Use `TMPDIR=/home/your-username/tmp pip install ...` instead |
