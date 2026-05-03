@@ -29,6 +29,7 @@ class Account(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     display_color = db.Column(db.String(7))     # hex color e.g. '#4a90e2'
     paired_liability_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    apy = db.Column(db.Numeric(7, 5), nullable=True)  # annual percentage yield for savings accounts
 
     # Relationships
     snapshots = db.relationship('AccountSnapshot', backref='account', lazy='dynamic', cascade='all, delete-orphan')
@@ -271,35 +272,6 @@ class RecurringEntry(db.Model):
 
     def __repr__(self):
         return f'<RecurringEntry {self.account_name}: ${self.amount} ({self.entry_type})>'
-
-
-class HysaAccount(db.Model):
-    """
-    High-yield savings / money-market account for portfolio income tracking.
-    Interest income = balance × apy.
-    """
-    __tablename__ = 'hysa_accounts'
-
-    id          = db.Column(db.Integer, primary_key=True)
-    name        = db.Column(db.String(100), nullable=False)
-    institution = db.Column(db.String(100))
-    balance     = db.Column(db.Numeric(14, 2), default=0, nullable=False)
-    apy         = db.Column(db.Numeric(7, 5), default=0, nullable=False)  # decimal, e.g. 0.04750
-    is_active   = db.Column(db.Boolean, default=True, nullable=False)
-    notes       = db.Column(db.Text)
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    @property
-    def annual_interest(self):
-        return float(self.balance or 0) * float(self.apy or 0)
-
-    @property
-    def monthly_interest(self):
-        return self.annual_interest / 12
-
-    def __repr__(self):
-        return f'<HysaAccount {self.name} apy={self.apy}>'
 
 
 class RentalProperty(db.Model):

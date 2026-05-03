@@ -7,7 +7,7 @@ import re
 import csv
 from flask import Blueprint, render_template, jsonify, request, flash, redirect, url_for, make_response
 from werkzeug.utils import secure_filename
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData, HysaAccount, RentalProperty
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData, RentalProperty
 from app import db
 from app.import_processor import process_csv, preview_csv
 from app import projections as proj
@@ -273,6 +273,11 @@ def _account_from_form(data, account=None):
     account.notes = data.get('notes', '').strip() or None
     plid = str(data.get('paired_liability_id', '')).strip()
     account.paired_liability_id = int(plid) if plid.isdigit() else None
+    raw_apy = data.get('apy', '').strip()
+    try:
+        account.apy = float(raw_apy) / 100 if raw_apy else None
+    except (ValueError, TypeError):
+        account.apy = None
     # New accounts are always active; existing accounts read the checkbox
     if account.id is None:
         account.is_active = True
@@ -348,6 +353,7 @@ def _form_values_from_account(account):
         'display_color': account.display_color or '#6c757d',
         'notes': account.notes or '',
         'paired_liability_id': account.paired_liability_id or '',
+        'apy': '{:.2f}'.format(float(account.apy) * 100) if account.apy else '',
     }
 
 
@@ -366,6 +372,7 @@ def _form_values_from_post():
         'display_color': request.form.get('display_color', '#6c757d'),
         'notes': request.form.get('notes', ''),
         'paired_liability_id': request.form.get('paired_liability_id', ''),
+        'apy': request.form.get('apy', ''),
     }
 
 
@@ -373,7 +380,7 @@ _FORM_DEFAULTS = {
     'name': '', 'institution': '', 'category': '', 'account_type': 'asset',
     'tax_status': '', 'is_liquid': True, 'include_in_networth': True,
     'is_active': True, 'account_number': '', 'display_color': '#6c757d', 'notes': '',
-    'paired_liability_id': '',
+    'paired_liability_id': '', 'apy': '',
 }
 
 
@@ -2253,6 +2260,7 @@ def allocation():
         ytd_expenses=ytd_expenses,
         ytd_save_rate=ytd_save_rate,
         ytd_year=current_year,
+        show_rental_income=_get_app_setting('show_rental_income', 'false') == 'true',
     )
 
 
@@ -2853,8 +2861,9 @@ def settings_page():
     enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
     api_key_set = bool(_get_app_setting('anthropic_api_key'))
     snapshot_timing = _get_app_setting('snapshot_timing', 'end_of_month')
+    show_rental = _get_app_setting('show_rental_income', 'false') == 'true'
     return render_template('settings.html', classification_enabled=enabled, api_key_set=api_key_set,
-                           snapshot_timing=snapshot_timing)
+                           snapshot_timing=snapshot_timing, show_rental_income=show_rental)
 
 
 @main_bp.route('/api/classifications')
@@ -2896,6 +2905,10 @@ def api_settings_save():
         if val in ('start_of_month', 'end_of_month'):
             _set_app_setting('snapshot_timing', val,
                              'Whether monthly snapshots represent start or end of month for charting')
+
+    if 'show_rental_income' in data:
+        val = 'true' if data['show_rental_income'] else 'false'
+        _set_app_setting('show_rental_income', val, 'Show Real Estate rental income section on Passive Income tab')
 
     logger.info('Settings saved: classification_enabled=%s',
                 _get_app_setting('claude_classification_enabled', 'false'))
@@ -3147,74 +3160,60 @@ def api_passive_income_projection():
     return jsonify(result)
 
 
-# ── Portfolio Income (HYSA / savings interest) ────────────────────────────────
+# ── Portfolio Income (savings/cash accounts with APY set) ────────────────────
 
-def _hysa_to_dict(acct):
-    return {
-        'id':               acct.id,
-        'name':             acct.name,
-        'institution':      acct.institution,
-        'balance':          float(acct.balance or 0),
-        'apy':              float(acct.apy or 0),
-        'is_active':        acct.is_active,
-        'notes':            acct.notes,
-        'annual_interest':  acct.annual_interest,
-        'monthly_interest': acct.monthly_interest,
-    }
+PORTFOLIO_INCOME_CATS = {'savings', 'cash', 'checking'}
 
 
 @main_bp.route('/api/portfolio-income', methods=['GET'])
 def api_portfolio_income_list():
-    accounts = HysaAccount.query.filter_by(is_active=True).order_by(HysaAccount.name).all()
-    rows = [_hysa_to_dict(a) for a in accounts]
+    """
+    Return all active savings/cash/checking accounts that have an APY set,
+    combined with their latest snapshot balance to compute interest income.
+    """
+    savings_accounts = (
+        Account.query
+        .filter(Account.category.in_(PORTFOLIO_INCOME_CATS))
+        .filter(Account.is_active == True)
+        .filter(Account.apy.isnot(None))
+        .filter(Account.apy > 0)
+        .order_by(Account.name)
+        .all()
+    )
+
+    account_ids = [a.id for a in savings_accounts]
+    latest_dates = dict(
+        db.session.query(AccountSnapshot.account_id, func.max(AccountSnapshot.snapshot_date))
+        .filter(AccountSnapshot.account_id.in_(account_ids))
+        .group_by(AccountSnapshot.account_id)
+        .all()
+    ) if account_ids else {}
+    latest_balances = {}
+    for acct_id, max_date in latest_dates.items():
+        snap = AccountSnapshot.query.filter_by(account_id=acct_id, snapshot_date=max_date).first()
+        if snap:
+            latest_balances[acct_id] = float(snap.balance)
+
+    rows = []
+    for a in savings_accounts:
+        balance = latest_balances.get(a.id, 0.0)
+        apy     = float(a.apy or 0)
+        annual  = balance * apy
+        rows.append({
+            'id':               a.id,
+            'name':             a.name,
+            'institution':      a.institution,
+            'category':         a.category,
+            'balance':          balance,
+            'apy':              apy,
+            'annual_interest':  annual,
+            'monthly_interest': annual / 12,
+            'edit_url':         f'/accounts/{a.id}/edit',
+        })
+
     total_annual  = sum(r['annual_interest']  for r in rows)
     total_monthly = sum(r['monthly_interest'] for r in rows)
     return jsonify({'accounts': rows, 'total_annual': total_annual, 'total_monthly': total_monthly})
-
-
-@main_bp.route('/api/portfolio-income', methods=['POST'])
-def api_portfolio_income_create():
-    data = request.get_json(force=True)
-    acct = HysaAccount(
-        name=        data.get('name', '').strip(),
-        institution= data.get('institution', '').strip() or None,
-        balance=     float(data.get('balance') or 0),
-        apy=         float(data.get('apy') or 0) / 100,  # UI sends percent, store decimal
-        notes=       data.get('notes', '').strip() or None,
-    )
-    if not acct.name:
-        return jsonify({'error': 'Name is required'}), 400
-    db.session.add(acct)
-    db.session.commit()
-    return jsonify(_hysa_to_dict(acct)), 201
-
-
-@main_bp.route('/api/portfolio-income/<int:acct_id>', methods=['PUT'])
-def api_portfolio_income_update(acct_id):
-    acct = HysaAccount.query.get_or_404(acct_id)
-    data = request.get_json(force=True)
-    if 'name' in data:
-        acct.name = data['name'].strip()
-    if 'institution' in data:
-        acct.institution = data['institution'].strip() or None
-    if 'balance' in data:
-        acct.balance = float(data['balance'] or 0)
-    if 'apy' in data:
-        acct.apy = float(data['apy'] or 0) / 100
-    if 'notes' in data:
-        acct.notes = data['notes'].strip() or None
-    if not acct.name:
-        return jsonify({'error': 'Name is required'}), 400
-    db.session.commit()
-    return jsonify(_hysa_to_dict(acct))
-
-
-@main_bp.route('/api/portfolio-income/<int:acct_id>', methods=['DELETE'])
-def api_portfolio_income_delete(acct_id):
-    acct = HysaAccount.query.get_or_404(acct_id)
-    db.session.delete(acct)
-    db.session.commit()
-    return jsonify({'ok': True})
 
 
 # ── Rental Income (real estate) ───────────────────────────────────────────────

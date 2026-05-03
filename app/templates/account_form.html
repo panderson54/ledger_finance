@@ -269,6 +269,20 @@
     </div>
     {% endif %}
 
+    <!-- APY (savings / cash accounts only) -->
+    <div class="col-md-3" id="apyWrapper">
+        <label class="form-label fw-semibold">APY
+            <span class="text-muted fw-normal small">— for Portfolio Income</span>
+        </label>
+        <div class="input-group">
+            <input type="number" name="apy" id="apyInput" class="form-control"
+                   min="0" max="20" step="0.01" placeholder="e.g. 4.75"
+                   value="{{ values.apy }}">
+            <span class="input-group-text">%</span>
+        </div>
+        <div class="form-text">Annual percentage yield. Used to calculate interest income on the Passive Income report.</div>
+    </div>
+
     <!-- Notes -->
     <div class="col-12">
         <label class="form-label fw-semibold">Notes</label>
@@ -340,6 +354,7 @@ const TAX_FREE_CATS  = new Set(['roth_ira', 'hsa', '529']);
 const TAX_DEF_CATS   = new Set(['401k', 'ira', 'retirement']);
 const NON_LIQUID     = new Set(['real_estate', 'vehicle', 'retirement', '401k', 'ira', 'roth_ira', 'hsa', '529']);
 const HIDE_TAX_CATS  = new Set(['real_estate', 'mortgage', 'cash', 'checking', 'savings', 'vehicle', 'loan', 'credit_card']);
+const SHOW_APY_CATS  = new Set(['savings', 'cash', 'checking']);
 
 function applyCategory(cat) {
     if (!cat) return;
@@ -374,6 +389,11 @@ function applyCategory(cat) {
     if (pairedWrapper) {
         pairedWrapper.classList.toggle('d-none', cat !== 'real_estate');
     }
+
+    const apyWrapper = document.getElementById('apyWrapper');
+    if (apyWrapper) {
+        apyWrapper.classList.toggle('d-none', !SHOW_APY_CATS.has(cat));
+    }
 }
 
 document.getElementById('categorySelect').addEventListener('change', function () {
@@ -383,9 +403,11 @@ document.getElementById('categorySelect').addEventListener('change', function ()
 // On load: apply visibility — preserve existing values on edit forms
 (function () {
     const cat = document.getElementById('categorySelect').value;
+    const apyWrapper = document.getElementById('apyWrapper');
     if (!cat) {
         const pw = document.getElementById('pairedLiabilityWrapper');
         if (pw) pw.classList.add('d-none');
+        if (apyWrapper) apyWrapper.classList.add('d-none');
         return;
     }
     if (HIDE_TAX_CATS.has(cat)) {
@@ -394,6 +416,7 @@ document.getElementById('categorySelect').addEventListener('change', function ()
     }
     const pw = document.getElementById('pairedLiabilityWrapper');
     if (pw) pw.classList.toggle('d-none', cat !== 'real_estate');
+    if (apyWrapper) apyWrapper.classList.toggle('d-none', !SHOW_APY_CATS.has(cat));
 })();
 
 // Allocation split sum validation

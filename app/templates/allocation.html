@@ -374,20 +374,19 @@
         <div class="fw-bold fs-5 text-primary" id="piInterestAnnual">—</div>
         <div class="text-muted small">Interest Income</div>
       </div></div>
+      {% if show_rental_income %}
       <div class="col-auto"><div class="card px-3 py-2 text-center border-warning">
         <div class="fw-bold fs-5 text-warning" id="piRentalAnnual">—</div>
         <div class="text-muted small">Rental Income</div>
       </div></div>
+      {% endif %}
     </div>
 
-    <!-- ── Portfolio Income (HYSA / savings interest) ── -->
+    <!-- ── Portfolio Income (savings / cash accounts with APY set) ── -->
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold">Portfolio Income</span>
-        <div class="d-flex gap-2 align-items-center">
-          <span class="small text-muted">High-yield savings &amp; money-market interest</span>
-          <button class="btn btn-sm btn-outline-primary" id="btnAddHysa">+ Add Account</button>
-        </div>
+        <span class="small text-muted">Interest income from savings &amp; cash accounts — set APY on the <a href="/accounts">account edit page</a></span>
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
@@ -400,11 +399,10 @@
                 <th class="text-end">APY</th>
                 <th class="text-end">Annual Interest</th>
                 <th class="text-end">Monthly Interest</th>
-                <th></th>
               </tr>
             </thead>
             <tbody id="hysaTableBody">
-              <tr><td colspan="7" class="text-center text-muted small py-3">No accounts yet — click "Add Account" to get started.</td></tr>
+              <tr><td colspan="6" class="text-center text-muted small py-3">Loading…</td></tr>
             </tbody>
             <tfoot class="table-light fw-semibold" id="hysaTableFoot"></tfoot>
           </table>
@@ -412,7 +410,8 @@
       </div>
     </div>
 
-    <!-- ── Real Estate (rentals) ── -->
+    <!-- ── Real Estate (rentals) — shown only when enabled in Settings ── -->
+    {% if show_rental_income %}
     <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold">Real Estate</span>
@@ -443,6 +442,7 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
     <!-- ── Investment Income (dividends) ── -->
     <div class="card mb-4" id="passiveIncomePanel">
@@ -614,53 +614,6 @@
     </div>
   </div>
 </div>
-<!-- ── HYSA Account Modal ── -->
-<div class="modal fade" id="hysaModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="hysaModalTitle">Add Account</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label">Account Name <span class="text-danger">*</span></label>
-          <input type="text" class="form-control" id="hysaName" placeholder="e.g. Marcus HYSA">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Institution</label>
-          <input type="text" class="form-control" id="hysaInstitution" placeholder="e.g. Goldman Sachs">
-        </div>
-        <div class="row g-3 mb-3">
-          <div class="col">
-            <label class="form-label">Current Balance</label>
-            <div class="input-group">
-              <span class="input-group-text">$</span>
-              <input type="number" class="form-control" id="hysaBalance" min="0" step="100" placeholder="0">
-            </div>
-          </div>
-          <div class="col">
-            <label class="form-label">APY</label>
-            <div class="input-group">
-              <input type="number" class="form-control" id="hysaApy" min="0" max="20" step="0.01" placeholder="4.75">
-              <span class="input-group-text">%</span>
-            </div>
-          </div>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Notes</label>
-          <input type="text" class="form-control" id="hysaNotes" placeholder="Optional">
-        </div>
-        <div class="text-danger small" id="hysaError"></div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-primary btn-sm" id="btnSaveHysa">Save</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- ── Rental Property Modal ── -->
 <div class="modal fade" id="rentalModal" tabindex="-1">
   <div class="modal-dialog">
@@ -975,18 +928,19 @@ function _fmtPct(n)   { return (n * 100).toFixed(2) + '%'; }
 
 function _updatePiSummary() {
   const total = _piDividendAnnual + _piInterestAnnual + _piRentalAnnual;
-  document.getElementById('piTotalAnnual').textContent   = _fmtMoney(total);
-  document.getElementById('piTotalMonthly').textContent  = _fmtMoney(total / 12);
+  document.getElementById('piTotalAnnual').textContent    = _fmtMoney(total);
+  document.getElementById('piTotalMonthly').textContent   = _fmtMoney(total / 12);
   document.getElementById('piDividendAnnual').textContent = _fmtMoney(_piDividendAnnual);
   document.getElementById('piInterestAnnual').textContent = _fmtMoney(_piInterestAnnual);
-  document.getElementById('piRentalAnnual').textContent   = _fmtMoney(_piRentalAnnual);
+  const rentalEl = document.getElementById('piRentalAnnual');
+  if (rentalEl) rentalEl.textContent = _fmtMoney(_piRentalAnnual);
 }
 
 function renderHysaTable(data) {
   const tbody = document.getElementById('hysaTableBody');
   const tfoot = document.getElementById('hysaTableFoot');
   if (!data.accounts || !data.accounts.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">No accounts yet — click "Add Account" to get started.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted small py-3">No savings accounts with an APY set. Edit a savings account and enter its APY to see it here.</td></tr>';
     tfoot.innerHTML = '';
     _piInterestAnnual = 0;
     _updatePiSummary();
@@ -994,33 +948,22 @@ function renderHysaTable(data) {
   }
   tbody.innerHTML = data.accounts.map(a => `
     <tr>
-      <td class="fw-semibold">${a.name}</td>
+      <td class="fw-semibold"><a href="${a.edit_url}" class="text-decoration-none">${a.name}</a></td>
       <td class="text-muted small">${a.institution || '—'}</td>
       <td class="text-end">$${a.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
       <td class="text-end">${(a.apy * 100).toFixed(2)}%</td>
-      <td class="text-end text-success fw-semibold">${_fmtMoney(a.annual_interest)}</td>
+      <td class="text-end text-success fw-semibold">${_fmtMoney(a.annual_interest)}/yr</td>
       <td class="text-end text-muted small">${_fmtMoney(a.monthly_interest)}/mo</td>
-      <td class="text-end">
-        <button class="btn btn-sm btn-link p-0 me-2 text-muted" onclick="openHysaEdit(${a.id})">Edit</button>
-        <button class="btn btn-sm btn-link p-0 text-danger" onclick="deleteHysa(${a.id})">Delete</button>
-      </td>
     </tr>`).join('');
   tfoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Total</td>
     <td class="text-end">${_fmtMoney(data.total_annual)}/yr</td>
-    <td class="text-end text-muted small">${_fmtMoney(data.total_monthly)}/mo</td>
-    <td></td></tr>`;
+    <td class="text-end text-muted small">${_fmtMoney(data.total_monthly)}/mo</td></tr>`;
   _piInterestAnnual = data.total_annual;
   _updatePiSummary();
 }
 
 function loadHysa() {
   fetch('/api/portfolio-income').then(r => r.json()).then(renderHysaTable).catch(console.error);
-}
-
-function deleteHysa(id) {
-  if (!confirm('Delete this account?')) return;
-  fetch('/api/portfolio-income/' + id, {method: 'DELETE'})
-    .then(() => loadHysa()).catch(console.error);
 }
 
 // ── Rental Income ─────────────────────────────────────────────────────────────
@@ -1071,61 +1014,10 @@ document.getElementById('tab-passive-income').addEventListener('shown.bs.tab', f
   if (_piTabLoaded) return;
   _piTabLoaded = true;
   loadHysa();
-  loadRental();
+  if (document.getElementById('rentalTableBody')) loadRental();
   loadPassiveIncome();
 });
 
-// ── Add / Edit modals (HYSA) ──────────────────────────────────────────────────
-let _editingHysaId = null;
-
-function openHysaAdd() {
-  _editingHysaId = null;
-  document.getElementById('hysaModalTitle').textContent = 'Add Account';
-  document.getElementById('hysaName').value = '';
-  document.getElementById('hysaInstitution').value = '';
-  document.getElementById('hysaBalance').value = '';
-  document.getElementById('hysaApy').value = '';
-  document.getElementById('hysaNotes').value = '';
-  document.getElementById('hysaError').textContent = '';
-  new bootstrap.Modal(document.getElementById('hysaModal')).show();
-}
-
-function openHysaEdit(id) {
-  fetch('/api/portfolio-income').then(r => r.json()).then(data => {
-    const a = data.accounts.find(x => x.id === id);
-    if (!a) return;
-    _editingHysaId = id;
-    document.getElementById('hysaModalTitle').textContent = 'Edit Account';
-    document.getElementById('hysaName').value = a.name;
-    document.getElementById('hysaInstitution').value = a.institution || '';
-    document.getElementById('hysaBalance').value = a.balance;
-    document.getElementById('hysaApy').value = (a.apy * 100).toFixed(2);
-    document.getElementById('hysaNotes').value = a.notes || '';
-    document.getElementById('hysaError').textContent = '';
-    new bootstrap.Modal(document.getElementById('hysaModal')).show();
-  });
-}
-
-document.getElementById('btnAddHysa').addEventListener('click', openHysaAdd);
-
-document.getElementById('btnSaveHysa').addEventListener('click', function () {
-  const body = {
-    name:        document.getElementById('hysaName').value.trim(),
-    institution: document.getElementById('hysaInstitution').value.trim(),
-    balance:     parseFloat(document.getElementById('hysaBalance').value) || 0,
-    apy:         parseFloat(document.getElementById('hysaApy').value) || 0,
-    notes:       document.getElementById('hysaNotes').value.trim(),
-  };
-  const url    = _editingHysaId ? '/api/portfolio-income/' + _editingHysaId : '/api/portfolio-income';
-  const method = _editingHysaId ? 'PUT' : 'POST';
-  fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
-    .then(r => r.json())
-    .then(j => {
-      if (j.error) { document.getElementById('hysaError').textContent = j.error; return; }
-      bootstrap.Modal.getInstance(document.getElementById('hysaModal')).hide();
-      loadHysa();
-    }).catch(console.error);
-});
 
 // ── Add / Edit modals (Rental) ────────────────────────────────────────────────
 let _editingRentalId = null;
@@ -1158,9 +1050,12 @@ function openRentalEdit(id) {
   });
 }
 
-document.getElementById('btnAddRental').addEventListener('click', openRentalAdd);
+if (document.getElementById('btnAddRental')) {
+  document.getElementById('btnAddRental').addEventListener('click', openRentalAdd);
+}
 
-document.getElementById('btnSaveRental').addEventListener('click', function () {
+const _btnSaveRental = document.getElementById('btnSaveRental');
+if (_btnSaveRental) _btnSaveRental.addEventListener('click', function () {
   const body = {
     name:         document.getElementById('rentalName').value.trim(),
     address:      document.getElementById('rentalAddress').value.trim(),
@@ -1180,6 +1075,7 @@ document.getElementById('btnSaveRental').addEventListener('click', function () {
 });
 
 // ── Passive Income + DRIP ────────────────────────────────────────────────────
+
 let _dripData = null;
 
 function renderDividendTable(data) {
