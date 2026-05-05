@@ -34,10 +34,12 @@ def _parse_month_str(month_str):
         return None
 
 
-def _recalculate_metrics(month_date):
+def _recalculate_metrics(month_date, _cascade=True):
     """
     Recalculate and upsert CalculatedMetric for the given month_date.
     Called automatically after any AccountSnapshot or SpendingEntry write.
+    _cascade=True causes one additional recalculation of the next month so
+    its monthly_change fields stay accurate after a historical edit.
     """
     # Sum assets (account_type='asset' AND include_in_networth=True)
     asset_snapshots = (
@@ -136,6 +138,13 @@ def _recalculate_metrics(month_date):
 
     db.session.commit()
     logger.debug('Metrics recalculated for %s', month_date.strftime('%Y-%m'))
+
+    # Cascade one level: next month's monthly_change depends on this month's net_worth
+    if _cascade:
+        next_month = month_date + relativedelta(months=1)
+        if CalculatedMetric.query.filter_by(metric_date=next_month).first() is not None:
+            _recalculate_metrics(next_month, _cascade=False)
+
     return metric
 
 

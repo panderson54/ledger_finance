@@ -787,17 +787,22 @@ document.getElementById('autoCalcBtnCard').addEventListener('click', function ()
 // ---------------------------------------------------------------------------
 
 function deleteEntireMonth(monthStr) {
-    if (!confirm('Delete ALL data for ' + monthStr + '? This cannot be undone.')) return;
-    fetch('/api/months/' + monthStr, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            window.location.href = '/monthly-update';
-        } else {
-            alert('Error: ' + (data.error || 'Delete failed.'));
+    showConfirmModal(
+        'Delete Month',
+        'Delete ALL data for ' + monthStr + '? Snapshots, spending entries, and metrics will be permanently removed.',
+        function() {
+            fetch('/api/months/' + monthStr, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = '/monthly-update';
+                } else {
+                    alert('Error: ' + (data.error || 'Delete failed.'));
+                }
+            })
+            .catch(() => alert('Network error.'));
         }
-    })
-    .catch(() => alert('Network error.'));
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,19 +1046,24 @@ document.getElementById('saveSnapshotBtn').addEventListener('click', function ()
 
 // Delete snapshot
 function deleteSnapshot(snapshotId) {
-    if (!confirm('Delete this snapshot?')) return;
-    fetch('/api/snapshots/' + snapshotId, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const row = document.getElementById('snapshot-row-' + snapshotId);
-            if (row) row.remove();
-            refreshMetricsDisplay();
-        } else {
-            alert('Error: ' + (data.error || 'Delete failed.'));
+    showConfirmModal(
+        'Delete Snapshot',
+        'Remove this account balance snapshot? The account will appear as unrecorded for this month.',
+        function() {
+            fetch('/api/snapshots/' + snapshotId, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const row = document.getElementById('snapshot-row-' + snapshotId);
+                    if (row) row.remove();
+                    refreshMetricsDisplay();
+                } else {
+                    alert('Error: ' + (data.error || 'Delete failed.'));
+                }
+            })
+            .catch(() => alert('Network error.'));
         }
-    })
-    .catch(() => alert('Network error.'));
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1155,19 +1165,24 @@ document.getElementById('saveAddSpendingBtn').addEventListener('click', function
 
 // Delete spending entry
 function deleteSpending(entryId) {
-    if (!confirm('Delete this entry?')) return;
-    fetch('/api/spending/' + entryId, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const row = document.getElementById('spending-row-' + entryId);
-            if (row) row.remove();
-            refreshMetricsDisplay();
-        } else {
-            alert('Error: ' + (data.error || 'Delete failed.'));
+    showConfirmModal(
+        'Delete Entry',
+        'Permanently delete this income or expense entry? This will update the save rate for this month.',
+        function() {
+            fetch('/api/spending/' + entryId, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const row = document.getElementById('spending-row-' + entryId);
+                    if (row) row.remove();
+                    refreshMetricsDisplay();
+                } else {
+                    alert('Error: ' + (data.error || 'Delete failed.'));
+                }
+            })
+            .catch(() => alert('Network error.'));
         }
-    })
-    .catch(() => alert('Network error.'));
+    );
 }
 
 // ---------------------------------------------------------------------------

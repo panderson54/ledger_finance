@@ -73,12 +73,24 @@ def create_app(config_name='development'):
     default_db_url = f'sqlite:///{os.path.join(data_dir, "finance.db")}'
 
     # Configuration
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-this')
+    _DEV_KEY = 'dev-secret-key-change-this'
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', _DEV_KEY)
     app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', default_db_url)
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Configure logging
     _configure_logging(base_dir)
+
+    if app.config['SECRET_KEY'] == _DEV_KEY:
+        if os.getenv('FLASK_ENV') == 'production':
+            raise RuntimeError(
+                'SECRET_KEY must be set in production. '
+                'Generate one with: python3 -c "import secrets; print(secrets.token_hex(32))"'
+            )
+        logger.warning(
+            'SECRET_KEY is not set — using insecure dev default. '
+            'Add SECRET_KEY to your .env file before deploying.'
+        )
 
     # Initialize extensions with app
     db.init_app(app)

@@ -16,9 +16,16 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 
 - **Net worth tracking** across assets and liabilities with automatic monthly metrics calculation
 - **Monthly data entry** with per-account balance snapshots and inline editing
+- **Spending tracking** by account/card (income and expenses) with auto-calculated savings rate
+- **Projections / Path to FI** — compound-growth forecast to a target net worth with configurable contribution and return rate assumptions
+- **Asset allocation & drift report** — target vs. actual allocation across asset classes with rebalancing guidance
+- **Holdings tracking** — record individual stock/fund positions per account for allocation drill-down
 - **CSV import** for historical data with flexible month header parsing (`Jan '24`, `Jan 2024`, `2024-01`, etc.)
-- **Spending tracking** by account/card (income and expenses)
-- **Interactive charts** via Plotly (net worth history, account balance history)
+- **CSV export** — download all monthly snapshots and spending data as a spreadsheet
+- **S&P 500 benchmark comparison** — overlay index returns on your net worth chart to see how you track against the market
+- **Account history charts** — per-account balance history via Plotly with dark-mode support
+- **Recurring entries** — mark spending entries as recurring so they pre-populate in new months
+- **Onboarding wizard** — guided first-run setup flow to create accounts and seed initial balances
 - **Import audit log** tracking all CSV import history
 
 ---
