@@ -39,6 +39,7 @@
 {% endif %}
 
 <form method="POST" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     <!-- Name / Institution -->
     <div class="col-md-6">

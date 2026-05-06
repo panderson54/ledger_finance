@@ -3,12 +3,16 @@ Flask application factory
 """
 import logging
 import os
+import sqlite3
 from logging.handlers import RotatingFileHandler
 
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+from flask_wtf.csrf import CSRFProtect
 from dotenv import load_dotenv
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 
 # Load environment variables
 load_dotenv()
@@ -16,8 +20,16 @@ load_dotenv()
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
+csrf = CSRFProtect()
 
 logger = logging.getLogger(__name__)
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_wal(dbapi_conn, _):
+    """Enable WAL mode for SQLite to support concurrent Gunicorn workers."""
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
 
 
 def _configure_logging(base_dir):
@@ -95,6 +107,7 @@ def create_app(config_name='development'):
     # Initialize extensions with app
     db.init_app(app)
     migrate.init_app(app, db)
+    csrf.init_app(app)
 
     # Register Jinja2 filters
     app.jinja_env.filters['datefmt'] = _datefmt
@@ -117,9 +130,5 @@ def create_app(config_name='development'):
     def internal_error(e):
         logger.exception('Unhandled exception on %s %s', request.method, request.path)
         return 'Internal Server Error', 500
-
-    # Create database tables
-    with app.app_context():
-        db.create_all()
 
     return app

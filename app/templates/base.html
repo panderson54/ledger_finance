@@ -10,6 +10,7 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Personal Finance Dashboard{% endblock %}</title>
 
     <!-- Geist font (shadcn/ui default) -->
@@ -54,6 +55,10 @@
                     <li class="nav-item">
                         <a class="nav-link {% if current in ['main.monthly_update', 'main.month_detail'] %}active{% endif %}"
                            href="{{ url_for('main.monthly_update') }}">Monthly Update</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if current == 'main.import_data' %}active{% endif %}"
+                           href="{{ url_for('main.import_data') }}">Import</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link {% if current == 'main.projections' %}active{% endif %}"
@@ -109,6 +114,21 @@
 
     <!-- Shared JS utilities -->
     <script>
+    // Inject CSRF token into all same-origin non-GET fetch requests automatically.
+    (function () {
+        var _csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+        if (!_csrfToken) return;
+        var _origFetch = window.fetch;
+        window.fetch = function (input, init) {
+            init = init || {};
+            var method = (init.method || 'GET').toUpperCase();
+            if (method !== 'GET' && method !== 'HEAD') {
+                init.headers = Object.assign({'X-CSRFToken': _csrfToken}, init.headers);
+            }
+            return _origFetch.call(this, input, init);
+        };
+    })();
+
     // showConfirmModal(title, body, onConfirm, btnLabel, btnClass)
     // Drop-in replacement for native confirm() on destructive actions.
     function showConfirmModal(title, body, onConfirm, btnLabel, btnClass) {

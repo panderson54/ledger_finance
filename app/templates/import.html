@@ -89,6 +89,7 @@
             <div class="card-header">Upload CSV File</div>
             <div class="card-body">
                 <form method="POST" enctype="multipart/form-data" id="importForm">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">
                         <label for="csv_file" class="form-label">Select CSV file</label>
                         <input class="form-control" type="file" id="csv_file"

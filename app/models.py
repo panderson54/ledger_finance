@@ -54,6 +54,7 @@ class AccountSnapshot(db.Model):
     # Composite unique constraint: one snapshot per account per month
     __table_args__ = (
         db.UniqueConstraint('account_id', 'snapshot_date', name='unique_account_snapshot'),
+        db.CheckConstraint('balance >= 0', name='non_negative_balance'),
     )
     
     def __repr__(self):
