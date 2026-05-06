@@ -269,6 +269,20 @@
     </div>
     {% endif %}
 
+    <!-- Expected Dividend Yield (investment accounts only) -->
+    <div class="col-md-4" id="edyWrapper">
+        <label class="form-label fw-semibold">Expected Dividend Yield
+            <span class="text-muted fw-normal small">— for Portfolio Income</span>
+        </label>
+        <div class="input-group">
+            <input type="number" name="expected_dividend_yield" id="edyInput" class="form-control"
+                   min="0" max="30" step="0.01" placeholder="e.g. 2.50"
+                   value="{{ values.expected_dividend_yield }}">
+            <span class="input-group-text">%</span>
+        </div>
+        <div class="form-text">Annual dividend yield estimate for the whole account. Used when individual holdings aren't tracked (e.g. robo-advisor accounts). Applied to the latest snapshot balance.</div>
+    </div>
+
     <!-- APY (savings / cash accounts only) -->
     <div class="col-md-3" id="apyWrapper">
         <label class="form-label fw-semibold">APY
@@ -355,6 +369,7 @@ const TAX_DEF_CATS   = new Set(['401k', 'ira', 'retirement']);
 const NON_LIQUID     = new Set(['real_estate', 'vehicle', 'retirement', '401k', 'ira', 'roth_ira', 'hsa', '529']);
 const HIDE_TAX_CATS  = new Set(['real_estate', 'mortgage', 'cash', 'checking', 'savings', 'vehicle', 'loan', 'credit_card']);
 const SHOW_APY_CATS  = new Set(['savings', 'cash', 'checking']);
+const INVESTMENT_CATS_JS = new Set(['brokerage', 'retirement', '401k', 'ira', 'roth_ira', 'hsa', '529', 'investment']);
 
 function applyCategory(cat) {
     if (!cat) return;
@@ -391,9 +406,10 @@ function applyCategory(cat) {
     }
 
     const apyWrapper = document.getElementById('apyWrapper');
-    if (apyWrapper) {
-        apyWrapper.classList.toggle('d-none', !SHOW_APY_CATS.has(cat));
-    }
+    if (apyWrapper) apyWrapper.classList.toggle('d-none', !SHOW_APY_CATS.has(cat));
+
+    const edyWrapper = document.getElementById('edyWrapper');
+    if (edyWrapper) edyWrapper.classList.toggle('d-none', !INVESTMENT_CATS_JS.has(cat));
 }
 
 document.getElementById('categorySelect').addEventListener('change', function () {
@@ -408,6 +424,8 @@ document.getElementById('categorySelect').addEventListener('change', function ()
         const pw = document.getElementById('pairedLiabilityWrapper');
         if (pw) pw.classList.add('d-none');
         if (apyWrapper) apyWrapper.classList.add('d-none');
+        const edyWrapper = document.getElementById('edyWrapper');
+        if (edyWrapper) edyWrapper.classList.add('d-none');
         return;
     }
     if (HIDE_TAX_CATS.has(cat)) {
@@ -417,6 +435,8 @@ document.getElementById('categorySelect').addEventListener('change', function ()
     const pw = document.getElementById('pairedLiabilityWrapper');
     if (pw) pw.classList.toggle('d-none', cat !== 'real_estate');
     if (apyWrapper) apyWrapper.classList.toggle('d-none', !SHOW_APY_CATS.has(cat));
+    const edyWrapper = document.getElementById('edyWrapper');
+    if (edyWrapper) edyWrapper.classList.toggle('d-none', !INVESTMENT_CATS_JS.has(cat));
 })();
 
 // Allocation split sum validation

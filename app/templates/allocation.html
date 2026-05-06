@@ -485,6 +485,30 @@
           </div>
         </div>
 
+        <!-- Account-Level Estimates -->
+        <div class="card-body border-top pt-3" id="acctEstimatesSection" style="display:none">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold small">Account-Level Estimates</span>
+            <span class="text-muted small">Whole-account yield applied to latest snapshot balance — set on the account edit page</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="acctEstimatesTable">
+              <thead class="table-light">
+                <tr>
+                  <th>Account</th>
+                  <th>Institution</th>
+                  <th class="text-end">Balance</th>
+                  <th class="text-end">Yield</th>
+                  <th class="text-end">Annual Est.</th>
+                  <th class="text-end">Monthly Est.</th>
+                </tr>
+              </thead>
+              <tbody id="acctEstimatesBody"></tbody>
+              <tfoot class="table-light fw-semibold" id="acctEstimatesFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
         <!-- DRIP Projection -->
         <div class="card-body border-top pt-3">
           <div class="fw-semibold mb-3">DRIP Projection</div>
@@ -1083,6 +1107,28 @@ function renderDividendTable(data) {
   const tfoot = document.getElementById('dividendTableFoot');
   if (!data || !data.by_holding || !data.by_holding.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-3">No holdings with dividend data.</td></tr>';
+    // Still render account estimates if present
+    const estSection = document.getElementById('acctEstimatesSection');
+    const estimates  = (data && data.account_estimates) || [];
+    if (estimates.length && estSection) {
+      const estBody = document.getElementById('acctEstimatesBody');
+      const estFoot = document.getElementById('acctEstimatesFoot');
+      estSection.style.display = '';
+      estBody.innerHTML = estimates.map(e => `<tr>
+        <td class="fw-semibold"><a href="${e.edit_url}" class="text-decoration-none">${e.account_name}</a></td>
+        <td class="text-muted small">${e.institution || '—'}</td>
+        <td class="text-end">$${e.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+        <td class="text-end">${(e.expected_yield * 100).toFixed(2)}%</td>
+        <td class="text-end text-info fw-semibold">${_fmtMoney(e.annual_income)}/yr</td>
+        <td class="text-end text-muted small">${_fmtMoney(e.monthly_income)}/mo</td>
+      </tr>`).join('');
+      const estTotal = (data && data.account_estimates_annual) || 0;
+      estFoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Estimates Total</td>
+        <td class="text-end">${_fmtMoney(estTotal)}/yr</td>
+        <td class="text-end text-muted small">${_fmtMoney(estTotal / 12)}/mo</td></tr>`;
+      _piDividendAnnual = estTotal;
+      _updatePiSummary();
+    }
     return;
   }
   tbody.innerHTML = data.by_holding.map(h => {
@@ -1117,7 +1163,30 @@ function renderDividendTable(data) {
     <td colspan="3"></td>
   </tr>`;
 
-  _piDividendAnnual = data.total_annual_income;
+  // Render account-level estimates sub-table
+  const estSection = document.getElementById('acctEstimatesSection');
+  const estBody    = document.getElementById('acctEstimatesBody');
+  const estFoot    = document.getElementById('acctEstimatesFoot');
+  const estimates  = data.account_estimates || [];
+  if (estimates.length && estSection) {
+    estSection.style.display = '';
+    estBody.innerHTML = estimates.map(e => `<tr>
+      <td class="fw-semibold"><a href="${e.edit_url}" class="text-decoration-none">${e.account_name}</a></td>
+      <td class="text-muted small">${e.institution || '—'}</td>
+      <td class="text-end">$${e.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+      <td class="text-end">${(e.expected_yield * 100).toFixed(2)}%</td>
+      <td class="text-end text-info fw-semibold">${_fmtMoney(e.annual_income)}/yr</td>
+      <td class="text-end text-muted small">${_fmtMoney(e.monthly_income)}/mo</td>
+    </tr>`).join('');
+    const estTotal = data.account_estimates_annual || 0;
+    estFoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Estimates Total</td>
+      <td class="text-end">${_fmtMoney(estTotal)}/yr</td>
+      <td class="text-end text-muted small">${_fmtMoney(estTotal / 12)}/mo</td></tr>`;
+  } else if (estSection) {
+    estSection.style.display = 'none';
+  }
+
+  _piDividendAnnual = data.total_annual_income + (data.account_estimates_annual || 0);
   _updatePiSummary();
 
   if (data.missing_data && data.missing_data.length) {

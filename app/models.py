@@ -30,6 +30,7 @@ class Account(db.Model):
     display_color = db.Column(db.String(7))     # hex color e.g. '#4a90e2'
     paired_liability_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
     apy = db.Column(db.Numeric(7, 5), nullable=True)  # annual percentage yield for savings accounts
+    expected_dividend_yield = db.Column(db.Numeric(7, 5), nullable=True)  # manual dividend yield override for investment accounts
 
     # Relationships
     snapshots = db.relationship('AccountSnapshot', backref='account', lazy='dynamic', cascade='all, delete-orphan')

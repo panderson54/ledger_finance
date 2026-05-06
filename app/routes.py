@@ -278,6 +278,11 @@ def _account_from_form(data, account=None):
         account.apy = float(raw_apy) / 100 if raw_apy else None
     except (ValueError, TypeError):
         account.apy = None
+    raw_edy = data.get('expected_dividend_yield', '').strip()
+    try:
+        account.expected_dividend_yield = float(raw_edy) / 100 if raw_edy else None
+    except (ValueError, TypeError):
+        account.expected_dividend_yield = None
     # New accounts are always active; existing accounts read the checkbox
     if account.id is None:
         account.is_active = True
@@ -354,6 +359,7 @@ def _form_values_from_account(account):
         'notes': account.notes or '',
         'paired_liability_id': account.paired_liability_id or '',
         'apy': '{:.2f}'.format(float(account.apy) * 100) if account.apy else '',
+        'expected_dividend_yield': '{:.2f}'.format(float(account.expected_dividend_yield) * 100) if account.expected_dividend_yield else '',
     }
 
 
@@ -373,6 +379,7 @@ def _form_values_from_post():
         'notes': request.form.get('notes', ''),
         'paired_liability_id': request.form.get('paired_liability_id', ''),
         'apy': request.form.get('apy', ''),
+        'expected_dividend_yield': request.form.get('expected_dividend_yield', ''),
     }
 
 
@@ -380,7 +387,7 @@ _FORM_DEFAULTS = {
     'name': '', 'institution': '', 'category': '', 'account_type': 'asset',
     'tax_status': '', 'is_liquid': True, 'include_in_networth': True,
     'is_active': True, 'account_number': '', 'display_color': '#6c757d', 'notes': '',
-    'paired_liability_id': '', 'apy': '',
+    'paired_liability_id': '', 'apy': '', 'expected_dividend_yield': '',
 }
 
 
@@ -3091,6 +3098,49 @@ def api_passive_income():
 
     result = calculate_current_income(holdings_data, tax_rate=tax_rate)
     result['missing_data'] = missing_data
+
+    # Account-level dividend estimates (investment accounts with expected_dividend_yield set)
+    est_accounts = (
+        Account.query
+        .filter(Account.category.in_(INVESTMENT_CATS))
+        .filter(Account.is_active == True)
+        .filter(Account.expected_dividend_yield.isnot(None))
+        .filter(Account.expected_dividend_yield > 0)
+        .order_by(Account.name)
+        .all()
+    )
+    est_ids = [a.id for a in est_accounts]
+    est_latest_dates = dict(
+        db.session.query(AccountSnapshot.account_id, func.max(AccountSnapshot.snapshot_date))
+        .filter(AccountSnapshot.account_id.in_(est_ids))
+        .group_by(AccountSnapshot.account_id)
+        .all()
+    ) if est_ids else {}
+    est_balances = {}
+    for acct_id, max_date in est_latest_dates.items():
+        snap = AccountSnapshot.query.filter_by(account_id=acct_id, snapshot_date=max_date).first()
+        if snap:
+            est_balances[acct_id] = float(snap.balance)
+
+    account_estimates = []
+    for a in est_accounts:
+        balance = est_balances.get(a.id, 0.0)
+        edy     = float(a.expected_dividend_yield or 0)
+        annual  = balance * edy
+        account_estimates.append({
+            'account_id':       a.id,
+            'account_name':     a.name,
+            'institution':      a.institution,
+            'category':         a.category,
+            'balance':          balance,
+            'expected_yield':   edy,
+            'annual_income':    annual,
+            'monthly_income':   annual / 12,
+            'edit_url':         f'/accounts/{a.id}/edit',
+        })
+    result['account_estimates'] = account_estimates
+    result['account_estimates_annual'] = sum(e['annual_income'] for e in account_estimates)
+
     return jsonify(result)
 
 
