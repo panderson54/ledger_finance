@@ -34,6 +34,12 @@
       Cash Flow
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-performance" data-bs-toggle="tab"
+            data-bs-target="#tabPerformance" type="button" role="tab">
+      Performance
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="reportsTabContent">
@@ -486,6 +492,53 @@
 
   </div><!-- /tabCashFlow -->
 
+  <!-- ── Performance tab ───────────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabPerformance" role="tabpanel">
+
+    <!-- Net worth-style hero chart for selected account -->
+    <div class="card nw-hero-card mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div class="nw-hero-meta">
+            <div class="nw-hero-label" id="perfChartLabel">Top Account</div>
+            <div class="nw-hero-value font-tabular" id="perfChartValue">—</div>
+            <div class="nw-hero-change font-tabular" id="perfChartChange"></div>
+          </div>
+          <div class="nw-period-tabs" id="perfPeriodTabs">
+            <button class="nw-period-btn" data-period="1M">1M</button>
+            <button class="nw-period-btn" data-period="3M">3M</button>
+            <button class="nw-period-btn active" data-period="YTD">YTD</button>
+            <button class="nw-period-btn" data-period="ALL">All</button>
+          </div>
+        </div>
+        <div id="perfChart"></div>
+      </div>
+    </div>
+
+    <!-- Leaderboard table -->
+    <div class="card">
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Account</th>
+              <th class="text-end">CAGR</th>
+              <th class="text-end">Total Growth</th>
+              <th class="text-end">3-Month</th>
+              <th class="text-end">Latest Balance</th>
+              <th>Since</th>
+            </tr>
+          </thead>
+          <tbody id="perfTableBody">
+            <tr><td colspan="7" class="text-center text-muted py-3">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /tabPerformance -->
+
 </div><!-- /tab-content -->
 
 <!-- ── Target Edit Modal ── -->
@@ -528,8 +581,11 @@ function isDark() { return document.documentElement.getAttribute('data-bs-theme'
 function axisColor() { return isDark() ? '#a1a1aa' : '#444'; }
 function gridColor() { return isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'; }
 
-// Hide the Investments action buttons when Cash Flow tab is active
+// Hide the Investments action buttons when non-Investments tabs are active
 document.getElementById('tab-cashflow').addEventListener('shown.bs.tab', function () {
+  document.getElementById('investmentsActions').style.display = 'none';
+});
+document.getElementById('tab-performance').addEventListener('shown.bs.tab', function () {
   document.getElementById('investmentsActions').style.display = 'none';
 });
 document.getElementById('tab-investments').addEventListener('shown.bs.tab', function () {
@@ -658,6 +714,7 @@ new MutationObserver(() => {
   {% if cap_invested_total > 0 %}renderCapBarChart();{% endif %}
   renderAllocHistoryChart();
   if (_dripData) renderDripChart(_dripData);
+  if (_perfSelectedData) renderPerfChart(perfActivePeriod);
 }).observe(document.documentElement, {attributes: true, attributeFilter: ['data-bs-theme']});
 
 // ── Cash Flow tab charts (lazy: render when tab becomes visible) ─────────────
@@ -737,6 +794,185 @@ function renderCashFlowCharts() {
 }
 
 document.getElementById('tab-cashflow').addEventListener('shown.bs.tab', renderCashFlowCharts);
+
+// ── Performance tab (lazy: render when tab first shown) ───────────────────────
+let _perfAllAccounts = null;
+let _perfSelectedData = null;
+let _perfSelectedColor = '#3b82f6';
+let perfActivePeriod = 'YTD';
+let perfRendered = false;
+let perfYMin = null, perfYMax = null;
+
+function filterByPeriodPerf(dates, values, period) {
+  const now = new Date();
+  if (period === 'ALL') {
+    return { dates, values, startValue: values.length ? values[0] : null, rangeStart: null, rangeEnd: null };
+  }
+  let cutoff, rangeStart, rangeEnd;
+  if (period === '1M') {
+    const firstOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastOfPrevMonth = new Date(firstOfCurrentMonth.getTime() - 1);
+    const firstOfPrevMonth = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth(), 1);
+    cutoff = firstOfPrevMonth;
+    rangeStart = firstOfPrevMonth;
+    rangeEnd = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth() + 1, 0);
+  } else if (period === '3M') {
+    cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+    rangeStart = new Date(cutoff);
+    rangeEnd = now;
+  } else if (period === 'YTD') {
+    cutoff = new Date(now.getFullYear() - 1, 11, 1);
+    rangeStart = new Date(now.getFullYear(), 0, 1);
+    rangeEnd = now;
+  }
+  let startValue = null;
+  if (period !== 'YTD') {
+    for (let i = dates.length - 1; i >= 0; i--) {
+      if (new Date(dates[i]) < cutoff) { startValue = values[i]; break; }
+    }
+  }
+  let pairs = dates.map((d, i) => [d, values[i]]).filter(([d]) => new Date(d) >= cutoff);
+  if (period === '1M') pairs = pairs.filter(([d]) => new Date(d) <= rangeEnd);
+  return { dates: pairs.map(p => p[0]), values: pairs.map(p => p[1]), startValue, rangeStart, rangeEnd };
+}
+
+function perfLayout(rangeStart, rangeEnd, yMin, yMax) {
+  const mobile = window.innerWidth < 768;
+  const ac = axisColor(), gc = gridColor();
+  const fmt = d => (d instanceof Date ? d.toISOString().split('T')[0] : d);
+  const xaxis = { color: ac, showgrid: false, zeroline: false, tickfont: { size: 11 } };
+  if (rangeStart && rangeEnd) xaxis.range = [fmt(rangeStart), fmt(rangeEnd)];
+  const yaxis = { tickformat: '$,.3s', exponentformat: 'none', color: ac, gridcolor: gc, zeroline: false, tickfont: { size: 11 } };
+  if (yMin != null && yMax != null) yaxis.range = [yMin, yMax];
+  return {
+    xaxis, yaxis,
+    font: { color: ac },
+    hovermode: 'x unified',
+    height: mobile ? 200 : 260,
+    margin: mobile ? { l: 52, r: 10, t: 8, b: 50 } : { l: 65, r: 16, t: 8, b: 36 },
+    showlegend: false,
+    plot_bgcolor: 'transparent',
+    paper_bgcolor: 'transparent',
+  };
+}
+
+function renderPerfChart(period) {
+  if (!_perfSelectedData) return;
+  const f = filterByPeriodPerf(_perfSelectedData.dates, _perfSelectedData.balances, period);
+
+  const current = f.values.length ? f.values[f.values.length - 1] : null;
+  document.getElementById('perfChartValue').textContent =
+    current != null ? '$' + current.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+  const el = document.getElementById('perfChartChange');
+  const base = f.startValue != null ? f.startValue : (f.values.length >= 2 ? f.values[0] : null);
+  if (current != null && base != null) {
+    const delta = current - base, pct = base !== 0 ? (delta / base) * 100 : 0;
+    const sign = delta >= 0 ? '+' : '';
+    const fmt = v => {
+      if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+      if (Math.abs(v) >= 1e3) return '$' + (v / 1e3).toFixed(1) + 'K';
+      return '$' + v.toFixed(0);
+    };
+    el.textContent = sign + fmt(delta) + ' (' + sign + pct.toFixed(2) + '%)';
+    el.className = 'nw-hero-change font-tabular ' + (delta >= 0 ? 'pos' : 'neg');
+  } else if (current === null) {
+    el.textContent = 'No data for selected period';
+    el.className = 'nw-hero-change font-tabular text-muted';
+  } else {
+    el.textContent = '';
+    el.className = 'nw-hero-change font-tabular';
+  }
+
+  perfYMin = null; perfYMax = null;
+  const allVals = [...f.values];
+  if (f.startValue != null) allVals.push(f.startValue);
+  if (allVals.length) {
+    const lo = Math.min(...allVals), hi = Math.max(...allVals);
+    const pad = (hi - lo) * 0.15 || lo * 0.005;
+    perfYMin = lo - pad; perfYMax = hi + pad * 0.5;
+  }
+
+  const color = _perfSelectedColor || '#3b82f6';
+  const fillcolor = isDark() ? 'rgba(99,155,255,0.12)' : 'rgba(59,130,246,0.10)';
+  Plotly.react('perfChart', [{
+    x: f.dates, y: f.values,
+    type: 'scatter', mode: 'lines',
+    fill: 'tozeroy', fillcolor,
+    line: { color, width: 2 },
+    hovertemplate: '%{x}<br><b>$%{y:,.0f}</b><extra></extra>',
+  }], perfLayout(f.rangeStart, f.rangeEnd, perfYMin, perfYMax), { responsive: true, displayModeBar: false });
+}
+
+function selectPerfAccount(acct) {
+  _perfSelectedData = acct;
+  _perfSelectedColor = acct.display_color || '#3b82f6';
+  document.getElementById('perfChartLabel').textContent = acct.name;
+  renderPerfChart(perfActivePeriod);
+  document.querySelectorAll('#perfTableBody tr').forEach(r => r.classList.remove('table-active'));
+  const row = document.getElementById('perf-row-' + acct.id);
+  if (row) row.classList.add('table-active');
+}
+
+function renderPerfTable(accounts) {
+  const tbody = document.getElementById('perfTableBody');
+  if (!accounts || !accounts.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No account history data available. Add monthly snapshots to see performance.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = accounts.map((a, i) => {
+    const dot = a.display_color
+      ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${a.display_color};margin-right:5px;"></span>`
+      : '';
+    const cagrFmt = a.cagr != null
+      ? `<span class="${a.cagr >= 0 ? 'text-success' : 'text-danger'}">${a.cagr >= 0 ? '+' : ''}${a.cagr.toFixed(2)}%</span>`
+      : '<span class="text-muted">—</span>';
+    const fmt$ = v => v != null
+      ? `<span class="${v >= 0 ? 'text-success' : 'text-danger'}">${v >= 0 ? '+' : ''}$${Math.abs(v).toLocaleString('en-US', {maximumFractionDigits: 0})}</span>`
+      : '<span class="text-muted">—</span>';
+    return `<tr id="perf-row-${a.id}" style="cursor:pointer" onclick="selectPerfAccount(window._perfAllAccounts[${i}])">
+      <td class="text-muted">${i + 1}</td>
+      <td>${dot}<a href="/accounts/${a.id}/history" class="text-decoration-none text-reset" onclick="event.stopPropagation()">${a.name}</a>
+        ${a.institution ? `<span class="text-muted small ms-1">· ${a.institution}</span>` : ''}</td>
+      <td class="text-end">${cagrFmt}</td>
+      <td class="text-end">${fmt$(a.abs_growth)}</td>
+      <td class="text-end">${fmt$(a.three_mo_change)}</td>
+      <td class="text-end">$${a.latest_balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+      <td class="text-muted small">${a.first_date}</td>
+    </tr>`;
+  }).join('');
+}
+
+function loadPerfData() {
+  if (perfRendered) return;
+  perfRendered = true;
+  fetch('/api/accounts/performance')
+    .then(r => r.json())
+    .then(data => {
+      _perfAllAccounts = data.accounts;
+      window._perfAllAccounts = data.accounts;
+      renderPerfTable(_perfAllAccounts);
+      if (_perfAllAccounts.length) selectPerfAccount(_perfAllAccounts[0]);
+    })
+    .catch(() => {
+      document.getElementById('perfTableBody').innerHTML =
+        '<tr><td colspan="7" class="text-center text-muted py-3">Failed to load performance data.</td></tr>';
+    });
+}
+
+document.getElementById('tab-performance').addEventListener('shown.bs.tab', loadPerfData);
+
+document.getElementById('perfPeriodTabs').addEventListener('click', function (e) {
+  const btn = e.target.closest('.nw-period-btn');
+  if (!btn) return;
+  document.querySelectorAll('#perfPeriodTabs .nw-period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  perfActivePeriod = btn.dataset.period;
+  renderPerfChart(perfActivePeriod);
+});
+
+window.addEventListener('resize', function () {
+  if (_perfSelectedData) Plotly.relayout('perfChart', perfLayout(null, null, perfYMin, perfYMax));
+});
 
 // ── Target modal sum validator ────────────────────────────────────────────────
 (function () {
