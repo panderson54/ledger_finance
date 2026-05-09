@@ -29,6 +29,8 @@ class Account(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     display_color = db.Column(db.String(7))     # hex color e.g. '#4a90e2'
     paired_liability_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=True)
+    apy = db.Column(db.Numeric(7, 5), nullable=True)  # annual percentage yield for savings accounts
+    expected_dividend_yield = db.Column(db.Numeric(7, 5), nullable=True)  # manual dividend yield override for investment accounts
 
     # Relationships
     snapshots = db.relationship('AccountSnapshot', backref='account', lazy='dynamic', cascade='all, delete-orphan')
@@ -271,6 +273,35 @@ class RecurringEntry(db.Model):
 
     def __repr__(self):
         return f'<RecurringEntry {self.account_name}: ${self.amount} ({self.entry_type})>'
+
+
+class RentalProperty(db.Model):
+    """
+    Real estate rental property for passive income tracking.
+    Net annual income = monthly_rent × (1 - vacancy_rate) × 12.
+    """
+    __tablename__ = 'rental_properties'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    name          = db.Column(db.String(100), nullable=False)
+    address       = db.Column(db.String(200))
+    monthly_rent  = db.Column(db.Numeric(10, 2), default=0, nullable=False)
+    vacancy_rate  = db.Column(db.Numeric(5, 4), default=0.05, nullable=False)  # e.g. 0.0500 = 5%
+    is_active     = db.Column(db.Boolean, default=True, nullable=False)
+    notes         = db.Column(db.Text)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def effective_monthly(self):
+        return float(self.monthly_rent or 0) * (1 - float(self.vacancy_rate or 0))
+
+    @property
+    def annual_income(self):
+        return self.effective_monthly * 12
+
+    def __repr__(self):
+        return f'<RentalProperty {self.name}>'
 
 
 class ImportLog(db.Model):

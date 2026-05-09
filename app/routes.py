@@ -7,7 +7,7 @@ import re
 import csv
 from flask import Blueprint, render_template, jsonify, request, flash, redirect, url_for, make_response
 from werkzeug.utils import secure_filename
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog, AssetAllocation, AppSetting, Holding, HoldingAllocation, TickerClassification, RecurringEntry, DividendData, RentalProperty
 from app import db
 from app.import_processor import process_csv, preview_csv
 from app import projections as proj
@@ -273,6 +273,16 @@ def _account_from_form(data, account=None):
     account.notes = data.get('notes', '').strip() or None
     plid = str(data.get('paired_liability_id', '')).strip()
     account.paired_liability_id = int(plid) if plid.isdigit() else None
+    raw_apy = data.get('apy', '').strip()
+    try:
+        account.apy = float(raw_apy) / 100 if raw_apy else None
+    except (ValueError, TypeError):
+        account.apy = None
+    raw_edy = data.get('expected_dividend_yield', '').strip()
+    try:
+        account.expected_dividend_yield = float(raw_edy) / 100 if raw_edy else None
+    except (ValueError, TypeError):
+        account.expected_dividend_yield = None
     # New accounts are always active; existing accounts read the checkbox
     if account.id is None:
         account.is_active = True
@@ -348,6 +358,8 @@ def _form_values_from_account(account):
         'display_color': account.display_color or '#6c757d',
         'notes': account.notes or '',
         'paired_liability_id': account.paired_liability_id or '',
+        'apy': '{:.2f}'.format(float(account.apy) * 100) if account.apy else '',
+        'expected_dividend_yield': '{:.2f}'.format(float(account.expected_dividend_yield) * 100) if account.expected_dividend_yield else '',
     }
 
 
@@ -366,6 +378,8 @@ def _form_values_from_post():
         'display_color': request.form.get('display_color', '#6c757d'),
         'notes': request.form.get('notes', ''),
         'paired_liability_id': request.form.get('paired_liability_id', ''),
+        'apy': request.form.get('apy', ''),
+        'expected_dividend_yield': request.form.get('expected_dividend_yield', ''),
     }
 
 
@@ -373,7 +387,7 @@ _FORM_DEFAULTS = {
     'name': '', 'institution': '', 'category': '', 'account_type': 'asset',
     'tax_status': '', 'is_liquid': True, 'include_in_networth': True,
     'is_active': True, 'account_number': '', 'display_color': '#6c757d', 'notes': '',
-    'paired_liability_id': '',
+    'paired_liability_id': '', 'apy': '', 'expected_dividend_yield': '',
 }
 
 
@@ -2253,6 +2267,7 @@ def allocation():
         ytd_expenses=ytd_expenses,
         ytd_save_rate=ytd_save_rate,
         ytd_year=current_year,
+        show_rental_income=_get_app_setting('show_rental_income', 'false') == 'true',
     )
 
 
@@ -2900,8 +2915,9 @@ def settings_page():
     enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
     api_key_set = bool(_get_app_setting('anthropic_api_key'))
     snapshot_timing = _get_app_setting('snapshot_timing', 'end_of_month')
+    show_rental = _get_app_setting('show_rental_income', 'false') == 'true'
     return render_template('settings.html', classification_enabled=enabled, api_key_set=api_key_set,
-                           snapshot_timing=snapshot_timing)
+                           snapshot_timing=snapshot_timing, show_rental_income=show_rental)
 
 
 @main_bp.route('/api/classifications')
@@ -2943,6 +2959,10 @@ def api_settings_save():
         if val in ('start_of_month', 'end_of_month'):
             _set_app_setting('snapshot_timing', val,
                              'Whether monthly snapshots represent start or end of month for charting')
+
+    if 'show_rental_income' in data:
+        val = 'true' if data['show_rental_income'] else 'false'
+        _set_app_setting('show_rental_income', val, 'Show Real Estate rental income section on Passive Income tab')
 
     logger.info('Settings saved: classification_enabled=%s',
                 _get_app_setting('claude_classification_enabled', 'false'))
@@ -3125,6 +3145,49 @@ def api_passive_income():
 
     result = calculate_current_income(holdings_data, tax_rate=tax_rate)
     result['missing_data'] = missing_data
+
+    # Account-level dividend estimates (investment accounts with expected_dividend_yield set)
+    est_accounts = (
+        Account.query
+        .filter(Account.category.in_(INVESTMENT_CATS))
+        .filter(Account.is_active == True)
+        .filter(Account.expected_dividend_yield.isnot(None))
+        .filter(Account.expected_dividend_yield > 0)
+        .order_by(Account.name)
+        .all()
+    )
+    est_ids = [a.id for a in est_accounts]
+    est_latest_dates = dict(
+        db.session.query(AccountSnapshot.account_id, func.max(AccountSnapshot.snapshot_date))
+        .filter(AccountSnapshot.account_id.in_(est_ids))
+        .group_by(AccountSnapshot.account_id)
+        .all()
+    ) if est_ids else {}
+    est_balances = {}
+    for acct_id, max_date in est_latest_dates.items():
+        snap = AccountSnapshot.query.filter_by(account_id=acct_id, snapshot_date=max_date).first()
+        if snap:
+            est_balances[acct_id] = float(snap.balance)
+
+    account_estimates = []
+    for a in est_accounts:
+        balance = est_balances.get(a.id, 0.0)
+        edy     = float(a.expected_dividend_yield or 0)
+        annual  = balance * edy
+        account_estimates.append({
+            'account_id':       a.id,
+            'account_name':     a.name,
+            'institution':      a.institution,
+            'category':         a.category,
+            'balance':          balance,
+            'expected_yield':   edy,
+            'annual_income':    annual,
+            'monthly_income':   annual / 12,
+            'edit_url':         f'/accounts/{a.id}/edit',
+        })
+    result['account_estimates'] = account_estimates
+    result['account_estimates_annual'] = sum(e['annual_income'] for e in account_estimates)
+
     return jsonify(result)
 
 
@@ -3192,3 +3255,129 @@ def api_passive_income_projection():
         'horizon_years':           horizon_years,
     }
     return jsonify(result)
+
+
+# ── Portfolio Income (savings/cash accounts with APY set) ────────────────────
+
+PORTFOLIO_INCOME_CATS = {'savings', 'cash', 'checking'}
+
+
+@main_bp.route('/api/portfolio-income', methods=['GET'])
+def api_portfolio_income_list():
+    """
+    Return all active savings/cash/checking accounts that have an APY set,
+    combined with their latest snapshot balance to compute interest income.
+    """
+    savings_accounts = (
+        Account.query
+        .filter(Account.category.in_(PORTFOLIO_INCOME_CATS))
+        .filter(Account.is_active == True)
+        .filter(Account.apy.isnot(None))
+        .filter(Account.apy > 0)
+        .order_by(Account.name)
+        .all()
+    )
+
+    account_ids = [a.id for a in savings_accounts]
+    latest_dates = dict(
+        db.session.query(AccountSnapshot.account_id, func.max(AccountSnapshot.snapshot_date))
+        .filter(AccountSnapshot.account_id.in_(account_ids))
+        .group_by(AccountSnapshot.account_id)
+        .all()
+    ) if account_ids else {}
+    latest_balances = {}
+    for acct_id, max_date in latest_dates.items():
+        snap = AccountSnapshot.query.filter_by(account_id=acct_id, snapshot_date=max_date).first()
+        if snap:
+            latest_balances[acct_id] = float(snap.balance)
+
+    rows = []
+    for a in savings_accounts:
+        balance = latest_balances.get(a.id, 0.0)
+        apy     = float(a.apy or 0)
+        annual  = balance * apy
+        rows.append({
+            'id':               a.id,
+            'name':             a.name,
+            'institution':      a.institution,
+            'category':         a.category,
+            'balance':          balance,
+            'apy':              apy,
+            'annual_interest':  annual,
+            'monthly_interest': annual / 12,
+            'edit_url':         f'/accounts/{a.id}/edit',
+        })
+
+    total_annual  = sum(r['annual_interest']  for r in rows)
+    total_monthly = sum(r['monthly_interest'] for r in rows)
+    return jsonify({'accounts': rows, 'total_annual': total_annual, 'total_monthly': total_monthly})
+
+
+# ── Rental Income (real estate) ───────────────────────────────────────────────
+
+def _rental_to_dict(prop):
+    return {
+        'id':               prop.id,
+        'name':             prop.name,
+        'address':          prop.address,
+        'monthly_rent':     float(prop.monthly_rent or 0),
+        'vacancy_rate':     float(prop.vacancy_rate or 0),
+        'is_active':        prop.is_active,
+        'notes':            prop.notes,
+        'effective_monthly': prop.effective_monthly,
+        'annual_income':    prop.annual_income,
+    }
+
+
+@main_bp.route('/api/rental-income', methods=['GET'])
+def api_rental_income_list():
+    properties = RentalProperty.query.filter_by(is_active=True).order_by(RentalProperty.name).all()
+    rows = [_rental_to_dict(p) for p in properties]
+    total_annual  = sum(r['annual_income']    for r in rows)
+    total_monthly = sum(r['effective_monthly'] for r in rows)
+    return jsonify({'properties': rows, 'total_annual': total_annual, 'total_monthly': total_monthly})
+
+
+@main_bp.route('/api/rental-income', methods=['POST'])
+def api_rental_income_create():
+    data = request.get_json(force=True)
+    prop = RentalProperty(
+        name=         data.get('name', '').strip(),
+        address=      data.get('address', '').strip() or None,
+        monthly_rent= float(data.get('monthly_rent') or 0),
+        vacancy_rate= float(data.get('vacancy_rate') or 5) / 100,  # UI sends percent, store decimal
+        notes=        data.get('notes', '').strip() or None,
+    )
+    if not prop.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.add(prop)
+    db.session.commit()
+    return jsonify(_rental_to_dict(prop)), 201
+
+
+@main_bp.route('/api/rental-income/<int:prop_id>', methods=['PUT'])
+def api_rental_income_update(prop_id):
+    prop = RentalProperty.query.get_or_404(prop_id)
+    data = request.get_json(force=True)
+    if 'name' in data:
+        prop.name = data['name'].strip()
+    if 'address' in data:
+        prop.address = data['address'].strip() or None
+    if 'monthly_rent' in data:
+        prop.monthly_rent = float(data['monthly_rent'] or 0)
+    if 'vacancy_rate' in data:
+        prop.vacancy_rate = float(data['vacancy_rate'] or 0) / 100
+    if 'notes' in data:
+        prop.notes = data['notes'].strip() or None
+    if not prop.name:
+        return jsonify({'error': 'Name is required'}), 400
+    db.session.commit()
+    return jsonify(_rental_to_dict(prop))
+
+
+@main_bp.route('/api/rental-income/<int:prop_id>', methods=['DELETE'])
+def api_rental_income_delete(prop_id):
+    prop = RentalProperty.query.get_or_404(prop_id)
+    db.session.delete(prop)
+    db.session.commit()
+    return jsonify({'ok': True})

@@ -29,6 +29,12 @@
     </button>
   </li>
   <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-passive-income" data-bs-toggle="tab"
+            data-bs-target="#tabPassiveIncome" type="button" role="tab">
+      Passive Income
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
     <button class="nav-link" id="tab-cashflow" data-bs-toggle="tab"
             data-bs-target="#tabCashFlow" type="button" role="tab">
       Cash Flow
@@ -342,11 +348,114 @@
 
     {% endif %}{# /total_invested > 0 #}
 
-    <!-- ── Passive Income Panel ──────────────────────────────────────────────── -->
-    <div class="card mt-4" id="passiveIncomePanel">
+    <!-- Allocation History chart -->
+    <div class="card mt-4">
+      <div class="card-header fw-semibold">Asset Allocation Over Time</div>
+      <div class="card-body">
+        <div id="allocHistoryChart" style="height:320px;"></div>
+        <div class="text-muted small mt-2" id="allocHistoryNote"></div>
+      </div>
+    </div>
+
+  </div><!-- /tabInvestments -->
+
+  <!-- ── Passive Income tab ───────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabPassiveIncome" role="tabpanel">
+
+    <!-- Combined summary chips (filled by JS) -->
+    <div class="row g-3 mb-4" id="piSummaryChips">
+      <div class="col-auto"><div class="card px-3 py-2 text-center">
+        <div class="fw-bold fs-5 text-success" id="piTotalAnnual">—</div>
+        <div class="text-muted small">Total Annual</div>
+      </div></div>
+      <div class="col-auto"><div class="card px-3 py-2 text-center">
+        <div class="fw-bold fs-5" id="piTotalMonthly">—</div>
+        <div class="text-muted small">Total Monthly</div>
+      </div></div>
+      <div class="col-auto"><div class="card px-3 py-2 text-center border-info">
+        <div class="fw-bold fs-5 text-info" id="piDividendAnnual">—</div>
+        <div class="text-muted small">Investment Income</div>
+      </div></div>
+      <div class="col-auto"><div class="card px-3 py-2 text-center border-primary">
+        <div class="fw-bold fs-5 text-primary" id="piInterestAnnual">—</div>
+        <div class="text-muted small">Interest Income</div>
+      </div></div>
+      {% if show_rental_income %}
+      <div class="col-auto"><div class="card px-3 py-2 text-center border-warning">
+        <div class="fw-bold fs-5 text-warning" id="piRentalAnnual">—</div>
+        <div class="text-muted small">Rental Income</div>
+      </div></div>
+      {% endif %}
+    </div>
+
+    <!-- ── Portfolio Income (savings / cash accounts with APY set) ── -->
+    <div class="card mb-4">
       <div class="card-header d-flex align-items-center justify-content-between">
-        <span class="fw-semibold">Passive Income</span>
+        <span class="fw-semibold">Portfolio Income</span>
+        <span class="small text-muted">Interest income from savings &amp; cash accounts — set APY on the <a href="/accounts">account edit page</a></span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="hysaTable">
+            <thead class="table-light">
+              <tr>
+                <th>Account</th>
+                <th>Institution</th>
+                <th class="text-end">Balance</th>
+                <th class="text-end">APY</th>
+                <th class="text-end">Annual Interest</th>
+                <th class="text-end">Monthly Interest</th>
+              </tr>
+            </thead>
+            <tbody id="hysaTableBody">
+              <tr><td colspan="6" class="text-center text-muted small py-3">Loading…</td></tr>
+            </tbody>
+            <tfoot class="table-light fw-semibold" id="hysaTableFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Real Estate (rentals) — shown only when enabled in Settings ── -->
+    {% if show_rental_income %}
+    <div class="card mb-4">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">Real Estate</span>
+        <div class="d-flex gap-2 align-items-center">
+          <span class="small text-muted">Rental properties</span>
+          <button class="btn btn-sm btn-outline-primary" id="btnAddRental">+ Add Property</button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" id="rentalTable">
+            <thead class="table-light">
+              <tr>
+                <th>Property</th>
+                <th>Address</th>
+                <th class="text-end">Monthly Rent</th>
+                <th class="text-end">Vacancy</th>
+                <th class="text-end">Net Monthly</th>
+                <th class="text-end">Net Annual</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="rentalTableBody">
+              <tr><td colspan="7" class="text-center text-muted small py-3">No properties yet — click "Add Property" to get started.</td></tr>
+            </tbody>
+            <tfoot class="table-light fw-semibold" id="rentalTableFoot"></tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ── Investment Income (dividends) ── -->
+    <div class="card mb-4" id="passiveIncomePanel">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold">Investment Income</span>
         <div class="d-flex align-items-center gap-2">
+          <span class="small text-muted">Dividends &amp; distributions from holdings</span>
           <span class="small text-muted" id="incomeLoadStatus">Loading…</span>
           <button class="btn btn-sm btn-link p-0 text-muted text-decoration-none"
                   type="button" data-bs-toggle="collapse" data-bs-target="#passiveIncomeBody"
@@ -356,11 +465,6 @@
         </div>
       </div>
       <div class="collapse show" id="passiveIncomeBody">
-
-        <!-- Summary chips -->
-        <div class="card-body pb-0">
-          <div class="row g-3 mb-2" id="incomeSummaryChips"></div>
-        </div>
 
         <!-- Per-holding table -->
         <div class="card-body p-0">
@@ -383,6 +487,30 @@
                 <tr><td colspan="9" class="text-center text-muted small py-3">Loading dividend data…</td></tr>
               </tbody>
               <tfoot class="table-light fw-semibold" id="dividendTableFoot"></tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Account-Level Estimates -->
+        <div class="card-body border-top pt-3" id="acctEstimatesSection" style="display:none">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <span class="fw-semibold small">Account-Level Estimates</span>
+            <span class="text-muted small">Whole-account yield applied to latest snapshot balance — set on the account edit page</span>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" id="acctEstimatesTable">
+              <thead class="table-light">
+                <tr>
+                  <th>Account</th>
+                  <th>Institution</th>
+                  <th class="text-end">Balance</th>
+                  <th class="text-end">Yield</th>
+                  <th class="text-end">Annual Est.</th>
+                  <th class="text-end">Monthly Est.</th>
+                </tr>
+              </thead>
+              <tbody id="acctEstimatesBody"></tbody>
+              <tfoot class="table-light fw-semibold" id="acctEstimatesFoot"></tfoot>
             </table>
           </div>
         </div>
@@ -436,16 +564,7 @@
       </div>
     </div>
 
-    <!-- Allocation History chart -->
-    <div class="card mt-4">
-      <div class="card-header fw-semibold">Asset Allocation Over Time</div>
-      <div class="card-body">
-        <div id="allocHistoryChart" style="height:320px;"></div>
-        <div class="text-muted small mt-2" id="allocHistoryNote"></div>
-      </div>
-    </div>
-
-  </div><!-- /tabInvestments -->
+  </div><!-- /tabPassiveIncome -->
 
   <!-- ── Cash Flow tab ────────────────────────────────────────────────────── -->
   <div class="tab-pane fade" id="tabCashFlow" role="tabpanel">
@@ -572,6 +691,52 @@
     </div>
   </div>
 </div>
+<!-- ── Rental Property Modal ── -->
+<div class="modal fade" id="rentalModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rentalModalTitle">Add Property</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Property Name <span class="text-danger">*</span></label>
+          <input type="text" class="form-control" id="rentalName" placeholder="e.g. 123 Main St Unit A">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Address</label>
+          <input type="text" class="form-control" id="rentalAddress" placeholder="e.g. 123 Main St, Austin TX 78701">
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col">
+            <label class="form-label">Monthly Rent</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" class="form-control" id="rentalRent" min="0" step="50" placeholder="1500">
+            </div>
+          </div>
+          <div class="col">
+            <label class="form-label">Vacancy Rate</label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="rentalVacancy" min="0" max="100" step="1" value="5">
+              <span class="input-group-text">%</span>
+            </div>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Notes</label>
+          <input type="text" class="form-control" id="rentalNotes" placeholder="Optional">
+        </div>
+        <div class="text-danger small" id="rentalError"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="btnSaveRental">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -591,6 +756,12 @@ document.getElementById('tab-performance').addEventListener('shown.bs.tab', func
 document.getElementById('tab-investments').addEventListener('shown.bs.tab', function () {
   document.getElementById('investmentsActions').style.display = '';
 });
+function _setInvestActionsVisible(show) {
+  document.getElementById('investmentsActions').style.display = show ? '' : 'none';
+}
+document.getElementById('tab-cashflow').addEventListener('shown.bs.tab', () => _setInvestActionsVisible(false));
+document.getElementById('tab-passive-income').addEventListener('shown.bs.tab', () => _setInvestActionsVisible(false));
+document.getElementById('tab-investments').addEventListener('shown.bs.tab', () => _setInvestActionsVisible(true));
 
 // ── Investments tab charts ────────────────────────────────────────────────────
 {% if total_invested > 0 %}
@@ -1013,7 +1184,164 @@ document.addEventListener('DOMContentLoaded', function () {
   initSortableTable('allHoldingsTable');
 });
 
+// ── Portfolio Income (HYSA) ───────────────────────────────────────────────────
+let _piDividendAnnual = 0;
+let _piInterestAnnual = 0;
+let _piRentalAnnual   = 0;
+
+function _fmtMoney(n) { return '$' + n.toLocaleString('en-US', {maximumFractionDigits: 0}); }
+function _fmtPct(n)   { return (n * 100).toFixed(2) + '%'; }
+
+function _updatePiSummary() {
+  const total = _piDividendAnnual + _piInterestAnnual + _piRentalAnnual;
+  document.getElementById('piTotalAnnual').textContent    = _fmtMoney(total);
+  document.getElementById('piTotalMonthly').textContent   = _fmtMoney(total / 12);
+  document.getElementById('piDividendAnnual').textContent = _fmtMoney(_piDividendAnnual);
+  document.getElementById('piInterestAnnual').textContent = _fmtMoney(_piInterestAnnual);
+  const rentalEl = document.getElementById('piRentalAnnual');
+  if (rentalEl) rentalEl.textContent = _fmtMoney(_piRentalAnnual);
+}
+
+function renderHysaTable(data) {
+  const tbody = document.getElementById('hysaTableBody');
+  const tfoot = document.getElementById('hysaTableFoot');
+  if (!data.accounts || !data.accounts.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted small py-3">No savings accounts with an APY set. Edit a savings account and enter its APY to see it here.</td></tr>';
+    tfoot.innerHTML = '';
+    _piInterestAnnual = 0;
+    _updatePiSummary();
+    return;
+  }
+  tbody.innerHTML = data.accounts.map(a => `
+    <tr>
+      <td class="fw-semibold"><a href="${a.edit_url}" class="text-decoration-none">${a.name}</a></td>
+      <td class="text-muted small">${a.institution || '—'}</td>
+      <td class="text-end">$${a.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+      <td class="text-end">${(a.apy * 100).toFixed(2)}%</td>
+      <td class="text-end text-success fw-semibold">${_fmtMoney(a.annual_interest)}/yr</td>
+      <td class="text-end text-muted small">${_fmtMoney(a.monthly_interest)}/mo</td>
+    </tr>`).join('');
+  tfoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Total</td>
+    <td class="text-end">${_fmtMoney(data.total_annual)}/yr</td>
+    <td class="text-end text-muted small">${_fmtMoney(data.total_monthly)}/mo</td></tr>`;
+  _piInterestAnnual = data.total_annual;
+  _updatePiSummary();
+}
+
+function loadHysa() {
+  fetch('/api/portfolio-income').then(r => r.json()).then(renderHysaTable).catch(console.error);
+}
+
+// ── Rental Income ─────────────────────────────────────────────────────────────
+function renderRentalTable(data) {
+  const tbody = document.getElementById('rentalTableBody');
+  const tfoot = document.getElementById('rentalTableFoot');
+  if (!data.properties || !data.properties.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted small py-3">No properties yet — click "Add Property" to get started.</td></tr>';
+    tfoot.innerHTML = '';
+    _piRentalAnnual = 0;
+    _updatePiSummary();
+    return;
+  }
+  tbody.innerHTML = data.properties.map(p => `
+    <tr>
+      <td class="fw-semibold">${p.name}</td>
+      <td class="text-muted small">${p.address || '—'}</td>
+      <td class="text-end">$${p.monthly_rent.toLocaleString('en-US', {maximumFractionDigits: 0})}/mo</td>
+      <td class="text-end text-muted small">${(p.vacancy_rate * 100).toFixed(0)}%</td>
+      <td class="text-end">$${p.effective_monthly.toLocaleString('en-US', {maximumFractionDigits: 0})}/mo</td>
+      <td class="text-end text-warning fw-semibold">${_fmtMoney(p.annual_income)}/yr</td>
+      <td class="text-end">
+        <button class="btn btn-sm btn-link p-0 me-2 text-muted" onclick="openRentalEdit(${p.id})">Edit</button>
+        <button class="btn btn-sm btn-link p-0 text-danger" onclick="deleteRental(${p.id})">Delete</button>
+      </td>
+    </tr>`).join('');
+  tfoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Total</td>
+    <td class="text-end text-muted small">${_fmtMoney(data.total_monthly)}/mo</td>
+    <td class="text-end">${_fmtMoney(data.total_annual)}/yr</td>
+    <td></td></tr>`;
+  _piRentalAnnual = data.total_annual;
+  _updatePiSummary();
+}
+
+function loadRental() {
+  fetch('/api/rental-income').then(r => r.json()).then(renderRentalTable).catch(console.error);
+}
+
+function deleteRental(id) {
+  if (!confirm('Delete this property?')) return;
+  fetch('/api/rental-income/' + id, {method: 'DELETE'})
+    .then(() => loadRental()).catch(console.error);
+}
+
+// ── Passive-income tab: lazy-load on first visit ──────────────────────────────
+let _piTabLoaded = false;
+document.getElementById('tab-passive-income').addEventListener('shown.bs.tab', function () {
+  if (_piTabLoaded) return;
+  _piTabLoaded = true;
+  loadHysa();
+  if (document.getElementById('rentalTableBody')) loadRental();
+  loadPassiveIncome();
+});
+
+
+// ── Add / Edit modals (Rental) ────────────────────────────────────────────────
+let _editingRentalId = null;
+
+function openRentalAdd() {
+  _editingRentalId = null;
+  document.getElementById('rentalModalTitle').textContent = 'Add Property';
+  document.getElementById('rentalName').value = '';
+  document.getElementById('rentalAddress').value = '';
+  document.getElementById('rentalRent').value = '';
+  document.getElementById('rentalVacancy').value = '5';
+  document.getElementById('rentalNotes').value = '';
+  document.getElementById('rentalError').textContent = '';
+  new bootstrap.Modal(document.getElementById('rentalModal')).show();
+}
+
+function openRentalEdit(id) {
+  fetch('/api/rental-income').then(r => r.json()).then(data => {
+    const p = data.properties.find(x => x.id === id);
+    if (!p) return;
+    _editingRentalId = id;
+    document.getElementById('rentalModalTitle').textContent = 'Edit Property';
+    document.getElementById('rentalName').value = p.name;
+    document.getElementById('rentalAddress').value = p.address || '';
+    document.getElementById('rentalRent').value = p.monthly_rent;
+    document.getElementById('rentalVacancy').value = (p.vacancy_rate * 100).toFixed(0);
+    document.getElementById('rentalNotes').value = p.notes || '';
+    document.getElementById('rentalError').textContent = '';
+    new bootstrap.Modal(document.getElementById('rentalModal')).show();
+  });
+}
+
+if (document.getElementById('btnAddRental')) {
+  document.getElementById('btnAddRental').addEventListener('click', openRentalAdd);
+}
+
+const _btnSaveRental = document.getElementById('btnSaveRental');
+if (_btnSaveRental) _btnSaveRental.addEventListener('click', function () {
+  const body = {
+    name:         document.getElementById('rentalName').value.trim(),
+    address:      document.getElementById('rentalAddress').value.trim(),
+    monthly_rent: parseFloat(document.getElementById('rentalRent').value) || 0,
+    vacancy_rate: parseFloat(document.getElementById('rentalVacancy').value) || 0,
+    notes:        document.getElementById('rentalNotes').value.trim(),
+  };
+  const url    = _editingRentalId ? '/api/rental-income/' + _editingRentalId : '/api/rental-income';
+  const method = _editingRentalId ? 'PUT' : 'POST';
+  fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    .then(r => r.json())
+    .then(j => {
+      if (j.error) { document.getElementById('rentalError').textContent = j.error; return; }
+      bootstrap.Modal.getInstance(document.getElementById('rentalModal')).hide();
+      loadRental();
+    }).catch(console.error);
+});
+
 // ── Passive Income + DRIP ────────────────────────────────────────────────────
+
 let _dripData = null;
 
 function renderDividendTable(data) {
@@ -1021,6 +1349,28 @@ function renderDividendTable(data) {
   const tfoot = document.getElementById('dividendTableFoot');
   if (!data || !data.by_holding || !data.by_holding.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted small py-3">No holdings with dividend data.</td></tr>';
+    // Still render account estimates if present
+    const estSection = document.getElementById('acctEstimatesSection');
+    const estimates  = (data && data.account_estimates) || [];
+    if (estimates.length && estSection) {
+      const estBody = document.getElementById('acctEstimatesBody');
+      const estFoot = document.getElementById('acctEstimatesFoot');
+      estSection.style.display = '';
+      estBody.innerHTML = estimates.map(e => `<tr>
+        <td class="fw-semibold"><a href="${e.edit_url}" class="text-decoration-none">${e.account_name}</a></td>
+        <td class="text-muted small">${e.institution || '—'}</td>
+        <td class="text-end">$${e.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+        <td class="text-end">${(e.expected_yield * 100).toFixed(2)}%</td>
+        <td class="text-end text-info fw-semibold">${_fmtMoney(e.annual_income)}/yr</td>
+        <td class="text-end text-muted small">${_fmtMoney(e.monthly_income)}/mo</td>
+      </tr>`).join('');
+      const estTotal = (data && data.account_estimates_annual) || 0;
+      estFoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Estimates Total</td>
+        <td class="text-end">${_fmtMoney(estTotal)}/yr</td>
+        <td class="text-end text-muted small">${_fmtMoney(estTotal / 12)}/mo</td></tr>`;
+      _piDividendAnnual = estTotal;
+      _updatePiSummary();
+    }
     return;
   }
   tbody.innerHTML = data.by_holding.map(h => {
@@ -1055,21 +1405,31 @@ function renderDividendTable(data) {
     <td colspan="3"></td>
   </tr>`;
 
-  const chips = document.getElementById('incomeSummaryChips');
-  const taxPct = Math.round((data.tax_rate_used || 0.27) * 100);
-  chips.innerHTML = `
-    <div class="col-auto"><div class="card px-3 py-2 text-center">
-      <div class="fw-bold fs-5 text-success">$${data.total_annual_income.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
-      <div class="text-muted small">Annual Income</div>
-    </div></div>
-    <div class="col-auto"><div class="card px-3 py-2 text-center">
-      <div class="fw-bold fs-5">$${data.total_monthly_income.toFixed(0)}</div>
-      <div class="text-muted small">Monthly Income</div>
-    </div></div>
-    <div class="col-auto"><div class="card px-3 py-2 text-center border-warning">
-      <div class="fw-bold fs-5 text-warning">$${data.est_after_tax_annual.toLocaleString('en-US', {maximumFractionDigits: 0})}</div>
-      <div class="text-muted small">Est. After-Tax (${taxPct}% rate)</div>
-    </div></div>`;
+  // Render account-level estimates sub-table
+  const estSection = document.getElementById('acctEstimatesSection');
+  const estBody    = document.getElementById('acctEstimatesBody');
+  const estFoot    = document.getElementById('acctEstimatesFoot');
+  const estimates  = data.account_estimates || [];
+  if (estimates.length && estSection) {
+    estSection.style.display = '';
+    estBody.innerHTML = estimates.map(e => `<tr>
+      <td class="fw-semibold"><a href="${e.edit_url}" class="text-decoration-none">${e.account_name}</a></td>
+      <td class="text-muted small">${e.institution || '—'}</td>
+      <td class="text-end">$${e.balance.toLocaleString('en-US', {maximumFractionDigits: 0})}</td>
+      <td class="text-end">${(e.expected_yield * 100).toFixed(2)}%</td>
+      <td class="text-end text-info fw-semibold">${_fmtMoney(e.annual_income)}/yr</td>
+      <td class="text-end text-muted small">${_fmtMoney(e.monthly_income)}/mo</td>
+    </tr>`).join('');
+    const estTotal = data.account_estimates_annual || 0;
+    estFoot.innerHTML = `<tr><td colspan="4" class="text-end text-muted small fst-italic">Estimates Total</td>
+      <td class="text-end">${_fmtMoney(estTotal)}/yr</td>
+      <td class="text-end text-muted small">${_fmtMoney(estTotal / 12)}/mo</td></tr>`;
+  } else if (estSection) {
+    estSection.style.display = 'none';
+  }
+
+  _piDividendAnnual = data.total_annual_income + (data.account_estimates_annual || 0);
+  _updatePiSummary();
 
   if (data.missing_data && data.missing_data.length) {
     document.getElementById('incomeLoadStatus').textContent =
@@ -1111,6 +1471,10 @@ function loadPassiveIncome() {
       document.getElementById('dividendTableBody').innerHTML =
         '<tr><td colspan="9" class="text-center text-danger small py-3">Failed to load income data.</td></tr>';
     });
+  fetch('/api/passive-income/projection?' + new URLSearchParams({horizon_years: 20}))
+    .then(r => r.json())
+    .then(data => { _dripData = data; _seedDripInputs(data.assumptions); renderDripChart(data); })
+    .catch(() => {});
 }
 
 function _seedDripInputs(assumptions) {
@@ -1167,18 +1531,6 @@ document.getElementById('btnRunDrip').addEventListener('click', function () {
       btn.textContent = 'Run Projection';
     });
 });
-
-// Load saved assumptions and seed inputs, then load income on page ready
-fetch('/api/passive-income/projection?' + new URLSearchParams({horizon_years: 20}))
-  .then(r => r.json())
-  .then(data => {
-    _dripData = data;
-    _seedDripInputs(data.assumptions);
-    renderDripChart(data);
-  })
-  .catch(() => {});
-
-document.addEventListener('DOMContentLoaded', loadPassiveIncome);
 
 // ── Refresh Prices button ─────────────────────────────────────────────────────
 (function () {
