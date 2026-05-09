@@ -28,15 +28,24 @@
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
             <div class="nw-hero-meta">
-                <div class="nw-hero-label" id="acctHistLabel">Account Balance</div>
+                <div class="nw-hero-label" id="acctHistLabel">Accounts Overview</div>
                 <div class="nw-hero-value font-tabular" id="acctHistValue">—</div>
                 <div class="nw-hero-change font-tabular" id="acctHistChange"></div>
             </div>
             <div class="d-flex flex-wrap gap-2 align-items-center">
-                <select class="form-select form-select-sm" id="acctHistSelector" style="width:auto;max-width:220px;">
-                    {% for a in accounts %}
-                    <option value="{{ a.id }}" data-color="{{ a.display_color or '' }}">{{ a.name }}</option>
-                    {% endfor %}
+                <select class="form-select form-select-sm" id="acctHistSelector" style="width:auto;max-width:240px;">
+                    <option value="__all__">All Accounts</option>
+                    <optgroup label="Account Groups">
+                        <option value="__group_real_estate__">Real Estate</option>
+                        <option value="__group_investments__">Investments / Brokerage</option>
+                        <option value="__group_retirement__">Retirement</option>
+                        <option value="__group_savings__">Savings</option>
+                    </optgroup>
+                    <optgroup label="Individual Accounts">
+                        {% for a in accounts %}
+                        <option value="{{ a.id }}" data-color="{{ a.display_color or '' }}">{{ a.name }}</option>
+                        {% endfor %}
+                    </optgroup>
                 </select>
                 <div class="nw-period-tabs" id="acctPeriodTabs">
                     <button class="nw-period-btn" data-period="1M">1M</button>
@@ -178,7 +187,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
-// ── Account Balance History Chart ─────────────────────────────────────────────
+// ── Accounts Overview Chart ───────────────────────────────────────────────────
 function isDark() { return document.documentElement.getAttribute('data-bs-theme') === 'dark'; }
 function axisColor() { return isDark() ? '#a1a1aa' : '#444'; }
 function gridColor() { return isDark() ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'; }
@@ -188,157 +197,199 @@ function formatCurrency(v) {
     return '$' + v.toFixed(0);
 }
 
-function filterByPeriod(dates, values, period) {
-    const now = new Date();
+// Default palette for accounts without a display_color
+const PALETTE = [
+    '#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6',
+    '#06b6d4','#f97316','#84cc16','#ec4899','#6366f1',
+];
+function paletteColor(idx) { return PALETTE[idx % PALETTE.length]; }
+
+let overviewData = null;
+let overviewPeriod = 'YTD';
+
+function getMonthsForPeriod(months, period) {
     if (period === 'ALL') {
-        return { dates, values, startValue: values.length ? values[0] : null, rangeStart: null, rangeEnd: null };
+        return { indices: months.map((_, i) => i), rangeStart: null, rangeEnd: null };
     }
-    let cutoff, rangeStart, rangeEnd;
+    const now = new Date();
+    let cutoffYM, rangeStart, rangeEnd;
     if (period === '1M') {
-        const firstOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastOfPrevMonth = new Date(firstOfCurrentMonth.getTime() - 1);
-        const firstOfPrevMonth = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth(), 1);
-        cutoff = firstOfPrevMonth;
-        rangeStart = firstOfPrevMonth;
-        rangeEnd = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth() + 1, 0);
+        const firstOfCur = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastOfPrev = new Date(firstOfCur.getTime() - 1);
+        const firstOfPrev = new Date(lastOfPrev.getFullYear(), lastOfPrev.getMonth(), 1);
+        cutoffYM = firstOfPrev.toISOString().substring(0, 7);
+        rangeStart = firstOfPrev;
+        rangeEnd = new Date(lastOfPrev.getFullYear(), lastOfPrev.getMonth() + 1, 0);
     } else if (period === '3M') {
-        cutoff = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-        rangeStart = new Date(cutoff);
-        rangeEnd = now;
-    } else if (period === 'YTD') {
-        cutoff = new Date(now.getFullYear() - 1, 11, 1);
+        const d = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+        cutoffYM = d.toISOString().substring(0, 7);
+        rangeStart = d; rangeEnd = now;
+    } else { // YTD: include previous Dec as baseline anchor
+        const d = new Date(now.getFullYear() - 1, 11, 1);
+        cutoffYM = d.toISOString().substring(0, 7);
         rangeStart = new Date(now.getFullYear(), 0, 1);
         rangeEnd = now;
     }
-    let startValue = null;
-    if (period !== 'YTD') {
-        for (let i = dates.length - 1; i >= 0; i--) {
-            if (new Date(dates[i]) < cutoff) { startValue = values[i]; break; }
-        }
-    }
-    let pairs = dates.map((d, i) => [d, values[i]]).filter(([d]) => new Date(d) >= cutoff);
-    if (period === '1M') pairs = pairs.filter(([d]) => new Date(d) <= rangeEnd);
-    return { dates: pairs.map(p => p[0]), values: pairs.map(p => p[1]), startValue, rangeStart, rangeEnd };
+    const indices = [];
+    months.forEach((m, i) => { if (m >= cutoffYM) indices.push(i); });
+    return { indices, rangeStart, rangeEnd };
 }
 
-let acctAllData = null;
-let acctActivePeriod = 'YTD';
-let acctLineColor = '#3b82f6';
-let acctYMin = null, acctYMax = null;
-
-function acctHistLayout(rangeStart, rangeEnd, yMin, yMax) {
+function acctHistLayout(rangeStart, rangeEnd, showLegend) {
     const mobile = window.innerWidth < 768;
     const ac = axisColor(), gc = gridColor();
     const fmt = d => (d instanceof Date ? d.toISOString().split('T')[0] : d);
     const xaxis = { color: ac, showgrid: false, zeroline: false, tickfont: { size: 11 } };
     if (rangeStart && rangeEnd) xaxis.range = [fmt(rangeStart), fmt(rangeEnd)];
     const yaxis = { tickformat: '$,.3s', exponentformat: 'none', color: ac, gridcolor: gc, zeroline: false, tickfont: { size: 11 } };
-    if (yMin != null && yMax != null) yaxis.range = [yMin, yMax];
     return {
         xaxis, yaxis,
         font: { color: ac },
         hovermode: 'x unified',
-        height: mobile ? 200 : 260,
-        margin: mobile ? { l: 52, r: 10, t: 8, b: 50 } : { l: 65, r: 16, t: 8, b: 36 },
-        showlegend: false,
+        height: mobile ? 220 : 280,
+        margin: mobile
+            ? { l: 52, r: 10, t: 8, b: 50 }
+            : { l: 65, r: 16, t: showLegend ? 28 : 8, b: 36 },
+        showlegend: !!showLegend,
+        legend: { orientation: 'h', y: 1.08, x: 0, font: { size: 11 } },
         plot_bgcolor: 'transparent',
         paper_bgcolor: 'transparent',
     };
 }
 
-function renderAcctHistChart(period) {
-    if (!acctAllData) return;
-    const f = filterByPeriod(acctAllData.dates, acctAllData.values, period);
+function renderOverviewChart(period) {
+    if (!overviewData) return;
+    const { months, accounts } = overviewData;
+    const { indices, rangeStart, rangeEnd } = getMonthsForPeriod(months, period);
 
-    const current = f.values.length ? f.values[f.values.length - 1] : null;
-    document.getElementById('acctHistValue').textContent =
-        current != null ? '$' + current.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
-    const el = document.getElementById('acctHistChange');
-    const base = f.startValue != null ? f.startValue : (f.values.length >= 2 ? f.values[0] : null);
-    if (current != null && base != null) {
-        const delta = current - base, pct = base !== 0 ? (delta / base) * 100 : 0;
-        const sign = delta >= 0 ? '+' : '';
-        el.textContent = sign + formatCurrency(delta) + ' (' + sign + pct.toFixed(2) + '%)';
-        el.className = 'nw-hero-change font-tabular ' + (delta >= 0 ? 'pos' : 'neg');
-    } else if (current === null) {
-        el.textContent = 'No data for selected period';
-        el.className = 'nw-hero-change font-tabular text-muted';
-    } else {
-        el.textContent = '';
-        el.className = 'nw-hero-change font-tabular';
+    const selEl = document.getElementById('acctHistSelector');
+    const selVal = selEl ? selEl.value : '__all__';
+
+    let filtered = accounts;
+    let isStacked = true;
+    let labelText = 'All Accounts';
+
+    if (selVal === '__group_real_estate__') {
+        filtered = accounts.filter(a => a.group === 'Real Estate');
+        labelText = 'Real Estate';
+    } else if (selVal === '__group_investments__') {
+        filtered = accounts.filter(a => a.group === 'Investments / Brokerage');
+        labelText = 'Investments / Brokerage';
+    } else if (selVal === '__group_retirement__') {
+        filtered = accounts.filter(a => a.group === 'Retirement');
+        labelText = 'Retirement';
+    } else if (selVal === '__group_savings__') {
+        filtered = accounts.filter(a => a.group === 'Savings');
+        labelText = 'Savings';
+    } else if (selVal !== '__all__') {
+        filtered = accounts.filter(a => String(a.id) === selVal);
+        isStacked = false;
+        labelText = filtered.length ? filtered[0].name : 'Account';
     }
 
-    acctYMin = null; acctYMax = null;
-    const allVals = [...f.values];
-    if (f.startValue != null) allVals.push(f.startValue);
-    if (allVals.length) {
-        const lo = Math.min(...allVals), hi = Math.max(...allVals);
-        const pad = (hi - lo) * 0.15 || lo * 0.005;
-        acctYMin = lo - pad; acctYMax = hi + pad * 0.5;
-    }
+    document.getElementById('acctHistLabel').textContent = labelText;
 
-    const color = acctLineColor || '#3b82f6';
-    const fillcolor = isDark() ? 'rgba(99,155,255,0.12)' : 'rgba(59,130,246,0.10)';
-    Plotly.react('acctHistChart', [{
-        x: f.dates, y: f.values,
-        type: 'scatter', mode: 'lines',
-        fill: 'tozeroy', fillcolor,
-        line: { color, width: 2 },
-        hovertemplate: '%{x}<br><b>$%{y:,.0f}</b><extra></extra>',
-    }], acctHistLayout(f.rangeStart, f.rangeEnd, acctYMin, acctYMax), { responsive: true, displayModeBar: false });
-}
+    const xDates = indices.map(i => months[i] + '-01');
 
-function loadAcctHistory(accountId, color) {
-    acctLineColor = color || '#3b82f6';
-    fetch('/api/accounts/' + accountId + '/history?all=true')
-        .then(r => r.json())
-        .then(data => {
-            acctAllData = {
-                dates: data.history.map(h => h.date),
-                values: data.history.map(h => h.balance),
+    let traces;
+    let colorIdx = 0;
+    if (isStacked) {
+        traces = filtered.map(acct => {
+            const color = acct.display_color || paletteColor(colorIdx++);
+            return {
+                x: xDates,
+                y: indices.map(i => acct.balances[i] || 0),
+                type: 'scatter',
+                mode: 'lines',
+                name: acct.name,
+                stackgroup: 'one',
+                line: { color, width: 1 },
+                fillcolor: color,
+                hovertemplate: acct.name + ': $%{y:,.0f}<extra></extra>',
             };
-            renderAcctHistChart(acctActivePeriod);
-        })
-        .catch(() => {});
+        });
+    } else {
+        const acct = filtered[0];
+        if (!acct) {
+            Plotly.react('acctHistChart', [], acctHistLayout(rangeStart, rangeEnd, false));
+            return;
+        }
+        const color = acct.display_color || '#3b82f6';
+        const fillcolor = isDark() ? 'rgba(99,155,255,0.12)' : 'rgba(59,130,246,0.10)';
+        traces = [{
+            x: xDates,
+            y: indices.map(i => acct.balances[i] || 0),
+            type: 'scatter', mode: 'lines',
+            fill: 'tozeroy', fillcolor,
+            line: { color, width: 2 },
+            hovertemplate: '%{x|%b %Y}<br><b>$%{y:,.0f}</b><extra></extra>',
+        }];
+    }
+
+    // Header stats: total of filtered accounts at latest vs first visible point
+    const latestIdx = indices.length ? indices[indices.length - 1] : null;
+    const firstIdx  = indices.length ? indices[0] : null;
+    const latest = latestIdx != null ? filtered.reduce((s, a) => s + (a.balances[latestIdx] || 0), 0) : 0;
+    const prev   = firstIdx  != null ? filtered.reduce((s, a) => s + (a.balances[firstIdx]  || 0), 0) : null;
+
+    document.getElementById('acctHistValue').textContent =
+        latest ? '$' + latest.toLocaleString('en-US', { maximumFractionDigits: 0 }) : '—';
+
+    const changeEl = document.getElementById('acctHistChange');
+    if (latest && prev != null && prev !== latest) {
+        const delta = latest - prev, pct = prev !== 0 ? (delta / prev) * 100 : 0;
+        const sign = delta >= 0 ? '+' : '';
+        changeEl.textContent = sign + formatCurrency(delta) + ' (' + sign + pct.toFixed(2) + '%)';
+        changeEl.className = 'nw-hero-change font-tabular ' + (delta >= 0 ? 'pos' : 'neg');
+    } else {
+        changeEl.textContent = '';
+        changeEl.className = 'nw-hero-change font-tabular';
+    }
+
+    const showLegend = isStacked && filtered.length > 1;
+    Plotly.react('acctHistChart', traces, acctHistLayout(rangeStart, rangeEnd, showLegend), { responsive: true, displayModeBar: false });
 }
 
 const acctSel = document.getElementById('acctHistSelector');
 if (acctSel) {
+    fetch('/api/accounts/overview-history')
+        .then(r => r.json())
+        .then(data => {
+            overviewData = data;
+            renderOverviewChart(overviewPeriod);
+        })
+        .catch(() => {});
+
     acctSel.addEventListener('change', function () {
-        const opt = acctSel.options[acctSel.selectedIndex];
-        document.getElementById('acctHistLabel').textContent = opt.text;
-        loadAcctHistory(acctSel.value, opt.dataset.color);
+        renderOverviewChart(overviewPeriod);
     });
-    const firstOpt = acctSel.options[0];
-    if (firstOpt) {
-        document.getElementById('acctHistLabel').textContent = firstOpt.text;
-        loadAcctHistory(firstOpt.value, firstOpt.dataset.color);
-    }
 
     document.querySelectorAll('#acctPeriodTabs .nw-period-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
             document.querySelectorAll('#acctPeriodTabs .nw-period-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            acctActivePeriod = btn.dataset.period;
-            renderAcctHistChart(acctActivePeriod);
+            overviewPeriod = btn.dataset.period;
+            renderOverviewChart(overviewPeriod);
         });
     });
 
+    // Clicking a table row selects that individual account in the chart
     document.querySelectorAll('tbody tr[id^="account-row-"]').forEach(function (row) {
         row.addEventListener('click', function (e) {
             if (e.target.tagName === 'A' || e.target.tagName === 'BUTTON') return;
             const id = row.id.replace('account-row-', '');
             acctSel.value = id;
+            if (!acctSel.value || acctSel.value === '') return;
             acctSel.dispatchEvent(new Event('change'));
         });
         row.style.cursor = 'pointer';
     });
 
-    new MutationObserver(function () { renderAcctHistChart(acctActivePeriod); })
+    new MutationObserver(function () { renderOverviewChart(overviewPeriod); })
         .observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
 
     window.addEventListener('resize', function () {
-        if (acctAllData) Plotly.relayout('acctHistChart', acctHistLayout(null, null, acctYMin, acctYMax));
+        if (overviewData) renderOverviewChart(overviewPeriod);
     });
 }
 

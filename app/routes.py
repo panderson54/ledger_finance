@@ -2327,6 +2327,74 @@ def api_accounts_performance():
     return jsonify({'accounts': results})
 
 
+@main_bp.route('/api/accounts/overview-history')
+def api_accounts_overview_history():
+    """Balance history for all active asset accounts, for the overview stacked chart."""
+    GROUP_MAP = {
+        'real_estate': 'Real Estate',
+        'vehicle': 'Real Estate',
+        'brokerage': 'Investments / Brokerage',
+        'investment': 'Investments / Brokerage',
+        'retirement': 'Retirement',
+        '401k': 'Retirement',
+        'ira': 'Retirement',
+        'roth_ira': 'Retirement',
+        'hsa': 'Retirement',
+        '529': 'Retirement',
+        'savings': 'Savings',
+        'checking': 'Savings',
+        'cash': 'Savings',
+    }
+
+    accounts = (
+        Account.query
+        .filter_by(is_active=True, account_type='asset', include_in_networth=True)
+        .order_by(Account.name)
+        .all()
+    )
+    if not accounts:
+        return jsonify({'months': [], 'accounts': []})
+
+    account_ids = [a.id for a in accounts]
+    snapshots = (
+        AccountSnapshot.query
+        .filter(AccountSnapshot.account_id.in_(account_ids))
+        .order_by(AccountSnapshot.snapshot_date)
+        .all()
+    )
+
+    all_months = sorted({s.snapshot_date.strftime('%Y-%m') for s in snapshots})
+    if not all_months:
+        return jsonify({'months': [], 'accounts': []})
+
+    from collections import defaultdict
+    acct_monthly: dict[int, dict[str, float]] = defaultdict(dict)
+    for snap in snapshots:
+        month = snap.snapshot_date.strftime('%Y-%m')
+        acct_monthly[snap.account_id][month] = float(snap.balance)
+
+    result_accounts = []
+    for acct in accounts:
+        monthly = acct_monthly.get(acct.id, {})
+        # Fill forward: carry last known balance for months with no snapshot
+        balances = []
+        last_val = 0.0
+        for month in all_months:
+            if month in monthly:
+                last_val = monthly[month]
+            balances.append(last_val)
+        result_accounts.append({
+            'id': acct.id,
+            'name': acct.name,
+            'category': acct.category,
+            'group': GROUP_MAP.get(acct.category, 'Other'),
+            'display_color': acct.display_color or '',
+            'balances': balances,
+        })
+
+    return jsonify({'months': all_months, 'accounts': result_accounts})
+
+
 @main_bp.route('/api/allocation/targets', methods=['POST'])
 def api_allocation_targets_save():
     """Save target allocation percentages."""
