@@ -166,25 +166,28 @@ document.getElementById('initMonthBtn').addEventListener('click', function () {
 });
 
 function deleteMonth(monthStr, btn) {
-    if (!confirm('Delete ALL data for ' + monthStr + '? This cannot be undone.')) return;
-
-    btn.disabled = true;
-
-    fetch('/api/months/' + monthStr, {method: 'DELETE'})
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const row = document.getElementById('month-row-' + monthStr);
-            if (row) row.remove();
-        } else {
-            alert('Error: ' + (data.error || 'Delete failed.'));
-            btn.disabled = false;
+    showConfirmModal(
+        'Delete Month',
+        'Delete ALL data for ' + monthStr + '? Snapshots, spending entries, and metrics will be permanently removed.',
+        function() {
+            btn.disabled = true;
+            fetch('/api/months/' + monthStr, {method: 'DELETE'})
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    const row = document.getElementById('month-row-' + monthStr);
+                    if (row) row.remove();
+                } else {
+                    alert('Error: ' + (data.error || 'Delete failed.'));
+                    btn.disabled = false;
+                }
+            })
+            .catch(() => {
+                alert('Network error. Please try again.');
+                btn.disabled = false;
+            });
         }
-    })
-    .catch(() => {
-        alert('Network error. Please try again.');
-        btn.disabled = false;
-    });
+    );
 }
 </script>
 {% endblock %}

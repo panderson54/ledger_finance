@@ -16,9 +16,16 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 
 - **Net worth tracking** across assets and liabilities with automatic monthly metrics calculation
 - **Monthly data entry** with per-account balance snapshots and inline editing
+- **Spending tracking** by account/card (income and expenses) with auto-calculated savings rate
+- **Projections / Path to FI** — compound-growth forecast to a target net worth with configurable contribution and return rate assumptions
+- **Asset allocation & drift report** — target vs. actual allocation across asset classes with rebalancing guidance
+- **Holdings tracking** — record individual stock/fund positions per account for allocation drill-down
 - **CSV import** for historical data with flexible month header parsing (`Jan '24`, `Jan 2024`, `2024-01`, etc.)
-- **Spending tracking** by account/card (income and expenses)
-- **Interactive charts** via Plotly (net worth history, account balance history)
+- **CSV export** — download all monthly snapshots and spending data as a spreadsheet
+- **S&P 500 benchmark comparison** — overlay index returns on your net worth chart to see how you track against the market
+- **Account history charts** — per-account balance history via Plotly with dark-mode support
+- **Recurring entries** — mark spending entries as recurring so they pre-populate in new months
+- **Onboarding wizard** — guided first-run setup flow to create accounts and seed initial balances
 - **Import audit log** tracking all CSV import history
 
 ---
@@ -85,6 +92,12 @@ DATABASE_URL=sqlite:///data/finance.db
 FLASK_ENV=development
 ```
 
+### Initialize the database
+
+```bash
+flask db upgrade
+```
+
 ### Run the app
 
 ```bash
@@ -92,6 +105,8 @@ python run.py
 ```
 
 App runs at **http://localhost:5001** and creates `data/finance.db` on first launch.
+
+> **For always-on deployment**, see the [Docker](#docker-quickest-setup) or [Raspberry Pi + Nginx](#raspberry-pi-recommended-for-self-hosting) sections below. `python run.py` is for local development only.
 
 ---
 
@@ -376,9 +391,18 @@ sudo nano /etc/nginx/sites-available/ledger
 Paste the following, replacing `your-username` with your actual username:
 
 ```nginx
+# Rate limiting: allow 10 requests/second per IP, burst of 20
+limit_req_zone $binary_remote_addr zone=ledger:10m rate=10r/s;
+
 server {
     listen 80;
     server_name _;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     location /static/ {
         alias /home/your-username/ledger/app/static/;
@@ -387,6 +411,7 @@ server {
     }
 
     location / {
+        limit_req zone=ledger burst=20 nodelay;
         include proxy_params;
         proxy_pass http://unix:/home/your-username/ledger/ledger.sock;
         proxy_read_timeout 120s;
@@ -534,6 +559,11 @@ flask db upgrade
 - Uses Flask application factory pattern (`create_app()`)
 - CSV import is idempotent — re-importing the same data upserts without duplicating
 - `.csv` files and `data/finance.db` are gitignored
+- Run tests with `pip install -r requirements-dev.txt && pytest`
+
+### AI Classification (Optional)
+
+The Holdings feature can use the Claude API to auto-classify tickers into asset classes. To enable it, add your Anthropic API key in Settings. **The key is stored in plaintext in `data/finance.db`** — rotate it at [console.anthropic.com](https://console.anthropic.com/settings/keys) if your data directory is ever accessed by an unauthorized party. Each new ticker lookup costs ~$0.001–$0.01; results are cached so the same ticker is only classified once.
 
 ---
 
