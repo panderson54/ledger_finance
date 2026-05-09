@@ -1,6 +1,7 @@
 """
 Application entry point
 """
+import os
 from app import create_app, db
 from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric
 
@@ -22,4 +23,5 @@ def make_shell_context():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)  # Changed to 5001
+    debug = os.getenv('FLASK_DEBUG', '').lower() in ('1', 'true')
+    app.run(debug=debug, host='0.0.0.0', port=int(os.getenv('PORT', 5001)))

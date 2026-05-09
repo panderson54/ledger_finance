@@ -343,20 +343,34 @@ if (acctSel) {
 }
 
 function toggleArchive(accountId, btn) {
-    btn.disabled = true;
-    fetch('/accounts/' + accountId + '/archive', {method: 'POST'})
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            const badge = document.getElementById('status-badge-' + accountId);
-            badge.textContent = data.is_active ? 'Active' : 'Archived';
-            badge.className = 'badge ' + (data.is_active ? 'bg-success' : 'bg-secondary');
-            btn.textContent = data.is_active ? 'Archive' : 'Restore';
-            btn.className = 'btn btn-sm btn-outline-' + (data.is_active ? 'warning' : 'success');
-        }
-        btn.disabled = false;
-    })
-    .catch(() => { btn.disabled = false; });
+    const isArchiving = btn.textContent.trim() === 'Archive';
+    const doToggle = function() {
+        btn.disabled = true;
+        fetch('/accounts/' + accountId + '/archive', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const badge = document.getElementById('status-badge-' + accountId);
+                badge.textContent = data.is_active ? 'Active' : 'Archived';
+                badge.className = 'badge ' + (data.is_active ? 'bg-success' : 'bg-secondary');
+                btn.textContent = data.is_active ? 'Archive' : 'Restore';
+                btn.className = 'btn btn-sm btn-outline-' + (data.is_active ? 'warning' : 'success');
+            }
+            btn.disabled = false;
+        })
+        .catch(() => { btn.disabled = false; });
+    };
+    if (isArchiving) {
+        showConfirmModal(
+            'Archive Account',
+            'Archive this account? It will be hidden from active views but its historical data will be preserved.',
+            doToggle,
+            'Archive',
+            'btn-warning'
+        );
+    } else {
+        doToggle();
+    }
 }
 </script>
 {% endblock %}
