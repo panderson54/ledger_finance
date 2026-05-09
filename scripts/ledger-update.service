@@ -1,0 +1,36 @@
+# ledger-update.service — systemd unit that runs auto_update.sh as a daemon.
+#
+# Install:
+#   1. Edit WorkingDirectory and ExecStart paths if your install location differs.
+#   2. Replace 'pi' with your actual username if different.
+#   3. Copy to systemd:
+#        sudo cp scripts/ledger-update.service /etc/systemd/system/
+#   4. Allow the service user to restart the app service without a password:
+#        sudo visudo
+#        # Add this line (replace 'pi' with your username):
+#        pi ALL=(ALL) NOPASSWD: /bin/systemctl restart ledger-finance, /bin/systemctl start ledger-finance
+#   5. Enable and start:
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable ledger-update.service
+#        sudo systemctl start ledger-update.service
+#   6. Check status / follow logs:
+#        sudo systemctl status ledger-update.service
+#        journalctl -fu ledger-update.service
+
+[Unit]
+Description=Ledger Finance — hourly GitHub auto-update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/ledger_finance
+ExecStart=/home/pi/ledger_finance/scripts/auto_update.sh
+Restart=on-failure
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
