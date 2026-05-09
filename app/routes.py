@@ -1032,15 +1032,15 @@ def account_balances(account_id):
 
 @main_bp.route('/api/accounts/<int:account_id>/history')
 def account_history_api(account_id):
-    """JSON: last 24 months of balance history for sparkline rendering."""
-    snapshots = (
+    """JSON: balance history for sparkline/chart rendering. Pass ?all=true for full history."""
+    q = (
         AccountSnapshot.query
         .filter_by(account_id=account_id)
         .order_by(AccountSnapshot.snapshot_date.desc())
-        .limit(24)
-        .all()
     )
-    snapshots = list(reversed(snapshots))
+    if request.args.get('all') != 'true':
+        q = q.limit(24)
+    snapshots = list(reversed(q.all()))
     return jsonify({
         'history': [
             {'date': s.snapshot_date.strftime('%Y-%m-%d'), 'balance': float(s.balance)}
@@ -2269,6 +2269,53 @@ def allocation():
         ytd_year=current_year,
         show_rental_income=_get_app_setting('show_rental_income', 'false') == 'true',
     )
+
+
+@main_bp.route('/api/accounts/performance')
+def api_accounts_performance():
+    """Ranked account performance metrics. Active asset accounts with >= 2 snapshots."""
+    accounts = (
+        Account.query
+        .filter_by(is_active=True, account_type='asset', include_in_networth=True)
+        .order_by(Account.name)
+        .all()
+    )
+    results = []
+    for acct in accounts:
+        snaps = (
+            AccountSnapshot.query
+            .filter_by(account_id=acct.id)
+            .order_by(AccountSnapshot.snapshot_date)
+            .all()
+        )
+        if len(snaps) < 2:
+            continue
+        first_bal = float(snaps[0].balance)
+        last_bal = float(snaps[-1].balance)
+        years = (snaps[-1].snapshot_date - snaps[0].snapshot_date).days / 365.25
+        cagr = None
+        if years > 0 and first_bal > 0:
+            cagr = round(((last_bal / first_bal) ** (1 / years) - 1) * 100, 2)
+        three_mo = (
+            round(last_bal - float(snaps[-4].balance), 2) if len(snaps) >= 4
+            else round(last_bal - float(snaps[-2].balance), 2)
+        )
+        results.append({
+            'id': acct.id,
+            'name': acct.name,
+            'institution': acct.institution,
+            'display_color': acct.display_color,
+            'latest_balance': last_bal,
+            'cagr': cagr,
+            'abs_growth': round(last_bal - first_bal, 2),
+            'three_mo_change': three_mo,
+            'first_date': snaps[0].snapshot_date.strftime('%Y-%m'),
+            'snapshot_count': len(snaps),
+            'dates': [s.snapshot_date.strftime('%Y-%m-%d') for s in snaps],
+            'balances': [float(s.balance) for s in snaps],
+        })
+    results.sort(key=lambda r: (r['cagr'] is None, -(r['cagr'] or 0)))
+    return jsonify({'accounts': results})
 
 
 @main_bp.route('/api/allocation/targets', methods=['POST'])
