@@ -1,9 +1,11 @@
+import json
 import os
 
 # Must be set before app is imported so create_app picks up the in-memory URI
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 import pytest
+from unittest.mock import MagicMock
 from sqlalchemy.pool import StaticPool
 
 from app import create_app
@@ -48,6 +50,66 @@ def db(app):
 @pytest.fixture(scope="function")
 def client(app, db):
     return app.test_client()
+
+
+# ---------------------------------------------------------------------------
+# Shared AI mock helpers
+# Used by test_classification.py and test_dividend.py
+# ---------------------------------------------------------------------------
+
+def make_anthropic_mock_client(response_json: dict | None = None, response_text: str | None = None):
+    """
+    Return a mock anthropic client whose messages.create() returns a single text block.
+
+    Pass either response_json (dict) or response_text (str). If both are None,
+    returns an empty dict JSON response.
+    """
+    if response_text is None:
+        response_text = json.dumps(response_json or {})
+    block = MagicMock()
+    block.text = response_text
+    resp = MagicMock()
+    resp.content = [block]
+    client = MagicMock()
+    client.messages.create.return_value = resp
+    return client
+
+
+def seed_ai_settings(db_session, api_key: str = "sk-test-key"):
+    """Seed AppSetting rows needed to enable Claude AI features in tests."""
+    db_session.add(AppSetting(key='claude_classification_enabled', value='true', description='test'))
+    db_session.add(AppSetting(key='anthropic_api_key', value=api_key, description='test'))
+    db_session.commit()
+
+
+def make_investment_account(db_session, name: str = "Brokerage", tax_status: str = "taxable") -> Account:
+    """Create and persist a standard brokerage account for testing."""
+    acct = Account(
+        name=name,
+        account_type="asset",
+        category="brokerage",
+        is_liquid=True,
+        include_in_networth=True,
+        is_active=True,
+        tax_status=tax_status,
+    )
+    db_session.add(acct)
+    db_session.commit()
+    return acct
+
+
+def make_holding(db_session, account_id: int, ticker: str = "VYM", shares: float = 100, price: float = 50.0) -> Holding:
+    """Create and persist a holding for testing."""
+    h = Holding(
+        account_id=account_id,
+        ticker=ticker,
+        shares=shares,
+        last_price=price,
+        is_active=True,
+    )
+    db_session.add(h)
+    db_session.commit()
+    return h
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,15 @@ from datetime import datetime
 from app import db
 
 
+class AllocationMixin:
+    """
+    Shared columns and constraint for models that store asset-class percentage splits.
+    Applied to AssetAllocation and HoldingAllocation.
+    """
+    asset_class = db.Column(db.String(50), nullable=False)
+    percentage  = db.Column(db.Numeric(5, 2), nullable=False)  # 0.00–100.00
+
+
 class Account(db.Model):
     """
     Represents a financial account (asset or liability)
@@ -82,24 +91,23 @@ class SpendingEntry(db.Model):
         return f'<SpendingEntry {self.account_name}: ${self.amount} ({self.entry_type})>'
 
 
-class AssetAllocation(db.Model):
+class AssetAllocation(AllocationMixin, db.Model):
     """
     Tracks the asset class distribution for investment accounts
     Supports tracking allocation changes over time
     """
     __tablename__ = 'asset_allocations'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=False)
     effective_date = db.Column(db.Date, nullable=False)  # When this allocation became effective
-    asset_class = db.Column(db.String(50), nullable=False)  # 'domestic_stock', 'international_stock', 'bonds'
-    percentage = db.Column(db.Numeric(5, 2), nullable=False)  # 0.00 to 100.00
+    # asset_class and percentage inherited from AllocationMixin
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
     __table_args__ = (
         db.CheckConstraint('percentage >= 0 AND percentage <= 100', name='valid_percentage'),
     )
-    
+
     def __repr__(self):
         return f'<AssetAllocation {self.account.name}: {self.asset_class} = {self.percentage}%>'
 
@@ -181,7 +189,7 @@ class Holding(db.Model):
         return f'<Holding {self.ticker} × {self.shares}>'
 
 
-class HoldingAllocation(db.Model):
+class HoldingAllocation(AllocationMixin, db.Model):
     """
     Asset-class split for a single holding.
     Simple holdings: one row at 100%.
@@ -189,10 +197,9 @@ class HoldingAllocation(db.Model):
     """
     __tablename__ = 'holding_allocations'
 
-    id          = db.Column(db.Integer, primary_key=True)
-    holding_id  = db.Column(db.Integer, db.ForeignKey('holdings.id'), nullable=False)
-    asset_class = db.Column(db.String(20), nullable=False)   # domestic|international|bonds|cash
-    percentage  = db.Column(db.Numeric(5, 2), nullable=False)
+    id         = db.Column(db.Integer, primary_key=True)
+    holding_id = db.Column(db.Integer, db.ForeignKey('holdings.id'), nullable=False)
+    # asset_class and percentage inherited from AllocationMixin
 
     __table_args__ = (
         db.CheckConstraint('percentage >= 0 AND percentage <= 100', name='ha_valid_pct'),
