@@ -5,8 +5,9 @@ Mirrors the structure of classification_service.py.
 """
 import json
 import logging
-import os
 from datetime import datetime, timezone, timedelta
+
+from app.ai_utils import make_anthropic_client, parse_claude_json_response, DIVIDEND_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -129,18 +130,10 @@ def fetch_dividend_data(ticker: str, api_key: str) -> dict:
     Raises RuntimeError if anthropic is not installed or api_key is empty.
     Raises ValueError if Claude returns unparseable or invalid JSON.
     """
-    try:
-        import anthropic
-    except ImportError:
-        raise RuntimeError("anthropic is not installed. Run: pip install 'anthropic>=0.50.0'")
-
-    if not api_key:
-        raise RuntimeError("Anthropic API key is not configured")
-
-    client = anthropic.Anthropic(api_key=api_key)
+    client = make_anthropic_client(api_key)
 
     response = client.messages.create(
-        model='claude-haiku-4-5-20251001',
+        model=DIVIDEND_MODEL,
         max_tokens=512,
         system=[{
             'type': 'text',
@@ -153,23 +146,8 @@ def fetch_dividend_data(ticker: str, api_key: str) -> dict:
         }],
     )
 
-    text_blocks = [b.text for b in response.content if hasattr(b, 'text')]
-    if not text_blocks:
-        raise ValueError(f"No text content in Claude response for ticker '{ticker}'")
-    raw = text_blocks[-1].strip()
-
-    # Strip markdown code fences if present
-    if raw.startswith('```'):
-        parts = raw.split('```')
-        raw = parts[1] if len(parts) > 1 else raw
-        if raw.startswith('json'):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Claude returned non-JSON for ticker '{ticker}': {e}. Raw: {raw[:300]}")
+    # Extract and parse the JSON response (handles markdown fences)
+    data = parse_claude_json_response(response, ticker)
 
     result = _validate_dividend_data(data)
     logger.info('Fetched dividend data: ticker=%s is_payer=%s yield=%.4f',
@@ -203,24 +181,14 @@ def get_or_fetch(ticker: str, api_key: str, force: bool = False) -> tuple[dict, 
         fetched = fetch_dividend_data(ticker, api_key)
     except Exception as e:
         logger.error('Dividend fetch failed: ticker=%s error=%s', ticker, e)
-        error_notes = json.dumps({'error': str(e)[:500], 'as_of_date': datetime.utcnow().date().isoformat()})
         if cached:
+            # Preserve stale data rather than returning nothing; note the error in source_notes
+            error_notes = json.dumps({'error': str(e)[:500], 'as_of_date': datetime.utcnow().date().isoformat()})
             cached.source_notes = error_notes
             db.session.commit()
             return _row_to_dict(cached), True
-        # Return a stub so callers don't crash; marked as non-payer to avoid showing false income
-        return {
-            'ticker': ticker,
-            'is_dividend_payer': False,
-            'annual_yield': 0.0,
-            'dividend_per_share': 0.0,
-            'frequency': None,
-            'payer_type': 'non_payer',
-            'tax_treatment': None,
-            'source_notes': error_notes,
-            'last_fetched_at': None,
-            'fetch_error': True,
-        }, False
+        # No cached row — re-raise so callers can decide how to handle the failure
+        raise
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 

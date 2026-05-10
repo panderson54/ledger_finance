@@ -231,12 +231,11 @@ class TestGetOrFetch:
         assert from_cache is False
         assert data['annual_yield'] == pytest.approx(0.031)
 
-    def test_fetch_error_returns_stub(self, db):
+    def test_fetch_error_no_cache_raises(self, db):
         from app.dividend_service import get_or_fetch
         with patch('anthropic.Anthropic', side_effect=Exception('network failure')):
-            data, from_cache = get_or_fetch('FAIL', 'sk-test')
-        assert data['fetch_error'] is True
-        assert data['annual_yield'] == 0.0
+            with pytest.raises(Exception, match='network failure'):
+                get_or_fetch('FAIL', 'sk-test')
 
 
 # ---------------------------------------------------------------------------

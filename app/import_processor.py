@@ -143,6 +143,49 @@ def _detect_format(df) -> tuple[str, list]:
     return 'generic', cols[1:]
 
 
+def _preprocess_csv(file_stream):
+    """
+    Shared CSV reading and header-parsing logic used by both process_csv and preview_csv.
+
+    Returns a dict with:
+        df             pd.DataFrame (or None on read failure)
+        fmt            'ledger' | 'generic'
+        month_dates    {col_name: date}
+        category_col   name of the first column
+        errors         list of error strings (non-empty → caller should abort)
+        warnings       list of warning strings
+    """
+    result = {'df': None, 'fmt': None, 'month_dates': {}, 'category_col': None,
+              'errors': [], 'warnings': []}
+
+    try:
+        result['df'] = pd.read_csv(file_stream, header=0)
+    except Exception as e:
+        result['errors'].append(f"Could not read CSV file: {e}")
+        return result
+
+    df = result['df']
+    if df.empty or len(df.columns) < 2:
+        result['errors'].append("CSV must have at least two columns: category and one month.")
+        return result
+
+    fmt, month_col_names = _detect_format(df)
+    result['fmt'] = fmt
+    result['category_col'] = df.columns[0]
+
+    for col in month_col_names:
+        d = _parse_month_date(col)
+        if d:
+            result['month_dates'][col] = d
+        else:
+            result['warnings'].append(f"Skipping column '{col}': could not parse as a month.")
+
+    if not result['month_dates']:
+        result['errors'].append("No parseable month columns found in the CSV header.")
+
+    return result
+
+
 def process_csv(file_stream, filename, db, models):
     """
     Parse and import a CSV file into the database.
@@ -177,37 +220,19 @@ def process_csv(file_stream, filename, db, models):
 
     logger.info('Parsing CSV: file=%s', filename)
 
-    # --- Read CSV ---
-    try:
-        df = pd.read_csv(file_stream, header=0)
-    except Exception as e:
-        logger.error('CSV read failed: file=%s, error=%s', filename, e)
-        results['errors'].append(f"Could not read CSV file: {e}")
-        _log_import(db, ImportLog, filename, 0, 'failed', str(e))
+    pre = _preprocess_csv(file_stream)
+    results['warnings'].extend(pre['warnings'])
+
+    if pre['errors']:
+        results['errors'].extend(pre['errors'])
+        _log_import(db, ImportLog, filename, 0, 'failed', pre['errors'][0])
         return results
 
-    if df.empty or len(df.columns) < 2:
-        results['errors'].append("CSV must have at least two columns: category and one month.")
-        _log_import(db, ImportLog, filename, 0, 'failed', 'Too few columns')
-        return results
-
-    fmt, month_col_names = _detect_format(df)
-    category_col = df.columns[0]
+    df = pre['df']
+    fmt = pre['fmt']
+    month_dates = pre['month_dates']
+    category_col = pre['category_col']
     logger.info('CSV format detected: %s', fmt)
-
-    # --- Parse month column headers ---
-    month_dates = {}
-    for col in month_col_names:
-        d = _parse_month_date(col)
-        if d:
-            month_dates[col] = d
-        else:
-            results['warnings'].append(f"Skipping column '{col}': could not parse as a month.")
-
-    if not month_dates:
-        results['errors'].append("No parseable month columns found in the CSV header.")
-        _log_import(db, ImportLog, filename, 0, 'failed', 'No month columns parsed')
-        return results
 
     # --- Accumulate calculated metric values across rows ---
     metric_data = {}  # {date: {field: value}}
@@ -439,31 +464,17 @@ def preview_csv(file_stream, models):
         'success': False,
     }
 
-    try:
-        df = pd.read_csv(file_stream, header=0)
-    except Exception as e:
-        results['errors'].append(f"Could not read CSV file: {e}")
+    pre = _preprocess_csv(file_stream)
+    results['warnings'].extend(pre['warnings'])
+
+    if pre['errors']:
+        results['errors'].extend(pre['errors'])
         return results
 
-    if df.empty or len(df.columns) < 2:
-        results['errors'].append("CSV must have at least two columns: category and one month.")
-        return results
-
-    fmt, month_col_names = _detect_format(df)
-    category_col = df.columns[0]
-
-    month_dates = {}
-    for col in month_col_names:
-        d = _parse_month_date(col)
-        if d:
-            month_dates[col] = d
-        else:
-            results['warnings'].append(f"Skipping column '{col}': could not parse as a month.")
-
-    if not month_dates:
-        results['errors'].append("No parseable month columns found in the CSV header.")
-        return results
-
+    df = pre['df']
+    fmt = pre['fmt']
+    month_dates = pre['month_dates']
+    category_col = pre['category_col']
     results['months'] = sorted(d.strftime('%Y-%m') for d in set(month_dates.values()))
     results['format'] = fmt
 

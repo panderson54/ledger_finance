@@ -20,9 +20,9 @@ def mock_yf(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clear_sp500_cache():
-    ps._sp500_cache.clear()
+    ps.clear_sp500_cache()
     yield
-    ps._sp500_cache.clear()
+    ps.clear_sp500_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,7 @@ class TestIsStale:
 
 class TestGetSp500MonthlyChange:
     def test_cache_hit_skips_network(self, mock_yf):
-        ps._sp500_cache[(2024, 1)] = (5.0, datetime.now(timezone.utc))
+        ps._sp500_cache._monthly[(2024, 1)] = (5.0, datetime.now(timezone.utc))
         result = get_sp500_monthly_change(2024, 1)
         assert result == 5.0
         mock_yf.Ticker.assert_not_called()
@@ -204,4 +204,4 @@ class TestGetSp500MonthlyChange:
         mock_yf.Ticker.return_value = ticker
 
         get_sp500_monthly_change(2024, 5)
-        assert (2024, 5) in ps._sp500_cache
+        assert (2024, 5) in ps._sp500_cache._monthly

@@ -75,8 +75,23 @@ def get_price(ticker: str) -> tuple[float, str]:
     return price, name
 
 
-_sp500_cache: dict = {}  # (year, month) -> (pct: float, fetched_at: datetime)
-_sp500_range_cache: dict = {}  # (start_date, end_date) -> (pct, fetched_at)
+class _Sp500Cache:
+    """Module-level S&P 500 result cache. Cleared between tests via clear()."""
+    def __init__(self):
+        self._monthly: dict = {}       # (year, month) -> (pct: float, fetched_at: datetime)
+        self._range: dict = {}         # (start_date, end_date) -> (pct, fetched_at)
+
+    def clear(self):
+        self._monthly.clear()
+        self._range.clear()
+
+
+_sp500_cache = _Sp500Cache()
+
+
+def clear_sp500_cache():
+    """Reset the S&P 500 in-memory cache (used in tests)."""
+    _sp500_cache.clear()
 
 
 def get_sp500_range_change(start_date, end_date) -> float | None:
@@ -89,7 +104,7 @@ def get_sp500_range_change(start_date, end_date) -> float | None:
     from datetime import timedelta
 
     cache_key = (start_date, end_date)
-    cached = _sp500_range_cache.get(cache_key)
+    cached = _sp500_cache._range.get(cache_key)
     if cached and (datetime.now(timezone.utc) - cached[1]).total_seconds() < 3600:
         return cached[0]
 
@@ -114,7 +129,7 @@ def get_sp500_range_change(start_date, end_date) -> float | None:
         end_close = float(inrange["Close"].iloc[-1])
         pct = (end_close - start_close) / start_close * 100
 
-        _sp500_range_cache[cache_key] = (pct, datetime.now(timezone.utc))
+        _sp500_cache._range[cache_key] = (pct, datetime.now(timezone.utc))
         logger.info("S&P 500 range change %s to %s: %.2f%%", start_date, end_date, pct)
         return pct
     except Exception:
@@ -132,7 +147,7 @@ def get_sp500_monthly_change(year: int, month: int) -> float | None:
     from datetime import timedelta
 
     cache_key = (year, month)
-    cached = _sp500_cache.get(cache_key)
+    cached = _sp500_cache._monthly.get(cache_key)
     if cached and (datetime.now(timezone.utc) - cached[1]).total_seconds() < 86_400:
         return cached[0]
 
@@ -160,7 +175,7 @@ def get_sp500_monthly_change(year: int, month: int) -> float | None:
         end_close = float(inmonth["Close"].iloc[-1])
         pct = (end_close - prev_close) / prev_close * 100
 
-        _sp500_cache[cache_key] = (pct, datetime.now(timezone.utc))
+        _sp500_cache._monthly[cache_key] = (pct, datetime.now(timezone.utc))
         logger.info("S&P 500 monthly change %d-%02d: %.2f%%", year, month, pct)
         return pct
     except Exception:

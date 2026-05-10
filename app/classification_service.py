@@ -5,8 +5,9 @@ Results are cached in the ticker_classifications table to avoid redundant API ca
 """
 import json
 import logging
-import os
 from datetime import datetime, timezone
+
+from app.ai_utils import make_anthropic_client, parse_claude_json_response, CLASSIFICATION_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -99,22 +100,14 @@ def classify_ticker(ticker: str, api_key: str, use_web_search: bool = False) -> 
         ValueError     if Claude returns unparseable or invalid JSON
         Exception      on API errors (network, rate limit, etc.)
     """
-    try:
-        import anthropic
-    except ImportError:
-        raise RuntimeError("anthropic is not installed. Run: pip install 'anthropic>=0.50.0'")
-
-    if not api_key:
-        raise RuntimeError("Anthropic API key is not configured")
-
-    client = anthropic.Anthropic(api_key=api_key)
+    client = make_anthropic_client(api_key)
 
     tools = []
     if use_web_search:
         tools = [{'type': 'web_search_20250305', 'name': 'web_search'}]
 
     kwargs = dict(
-        model='claude-opus-4-7',
+        model=CLASSIFICATION_MODEL,
         max_tokens=512,
         system=[{
             'type': 'text',
@@ -131,24 +124,8 @@ def classify_ticker(ticker: str, api_key: str, use_web_search: bool = False) -> 
 
     response = client.messages.create(**kwargs)
 
-    # Extract the last text block (web search may emit tool_use blocks first)
-    text_blocks = [b.text for b in response.content if hasattr(b, 'text')]
-    if not text_blocks:
-        raise ValueError(f"No text content in Claude response for ticker '{ticker}'")
-    raw = text_blocks[-1].strip()
-
-    # Strip markdown code fences if present
-    if raw.startswith('```'):
-        parts = raw.split('```')
-        raw = parts[1] if len(parts) > 1 else raw
-        if raw.startswith('json'):
-            raw = raw[4:]
-    raw = raw.strip()
-
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Claude returned non-JSON for ticker '{ticker}': {e}. Raw: {raw[:300]}")
+    # Extract and parse the JSON response (handles tool_use blocks and markdown fences)
+    data = parse_claude_json_response(response, ticker)
 
     result = _validate_classification(data)
     logger.info('Classified: ticker=%s asset_class=%s cap=%s', ticker, result['asset_class'], result['market_cap_tilt'])
