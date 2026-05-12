@@ -142,9 +142,15 @@
             <p class="fw-semibold mb-0">Holdings
                 <span class="text-muted fw-normal small ms-1">— individual tickers; allocation derived from these when present</span>
             </p>
-            <button type="button" class="btn btn-sm btn-outline-primary" id="btnRefreshPrices">
-                Refresh Prices
-            </button>
+            <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="btnRefreshPrices">
+                    Refresh Prices
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefreshAll"
+                        title="Re-fetch prices, AI classification (asset class, cap size, sector weights), and dividend data for all holdings">
+                    Refresh All
+                </button>
+            </div>
         </div>
 
         <!-- Holdings table -->
@@ -902,19 +908,48 @@ document.getElementById('categorySelect').addEventListener('change', function ()
         errEl.classList.remove('d-none');
     }
 
-    // ── Refresh prices ────────────────────────────────────────────────────
+    // ── Refresh prices (current account, force-refresh) ───────────────────
 
     document.getElementById('btnRefreshPrices').addEventListener('click', function () {
         this.disabled = true;
-        statusEl.textContent = 'Refreshing…';
-        fetch('/api/prices/refresh', {method: 'POST'})
+        statusEl.textContent = 'Refreshing prices…';
+        fetch(`/api/prices/refresh?account_id=${ACCOUNT_ID}&force=1`, {method: 'POST'})
             .then(r => r.json())
             .then(j => {
-                statusEl.textContent = `Updated ${j.updated}, skipped ${j.skipped}${j.failed ? ', ' + j.failed + ' failed' : ''}.`;
+                const msg = `Prices: ${j.updated} updated` +
+                    (j.skipped ? `, ${j.skipped} skipped` : '') +
+                    (j.failed  ? `, ${j.failed} failed`  : '') + '.';
+                statusEl.textContent = msg;
                 loadHoldings();
             })
-            .catch(() => { statusEl.textContent = 'Refresh failed.'; })
+            .catch(() => { statusEl.textContent = 'Price refresh failed.'; })
             .finally(() => { this.disabled = false; });
+    });
+
+    // ── Refresh All (prices + AI classification + dividend data) ──────────
+
+    document.getElementById('btnRefreshAll').addEventListener('click', function () {
+        const btn = this;
+        btn.disabled = true;
+        statusEl.textContent = 'Refreshing all holdings — prices, classification, and dividend data. This may take a minute…';
+        fetch(`/api/accounts/${ACCOUNT_ID}/holdings/refresh-all`, {method: 'POST'})
+            .then(r => r.json())
+            .then(j => {
+                if (j.error) { statusEl.textContent = `Error: ${j.error}`; return; }
+                const s = j.summary;
+                const parts = [`Prices: ${s.price_updated}/${s.total}`];
+                if (s.ai_enabled) {
+                    parts.push(`Classified: ${s.classified}`);
+                    parts.push(`Dividends: ${s.dividend_updated}`);
+                } else {
+                    parts.push('AI disabled — enable in Settings for classification and dividend data');
+                }
+                if (s.failed) parts.push(`${s.failed} failed`);
+                statusEl.textContent = parts.join(' · ') + '.';
+                loadHoldings();
+            })
+            .catch(() => { statusEl.textContent = 'Refresh failed — network error.'; })
+            .finally(() => { btn.disabled = false; });
     });
 })();
 </script>
