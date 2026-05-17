@@ -29,7 +29,7 @@ def make_anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
 
-def parse_claude_json_response(response, label: str) -> dict:
+def parse_claude_json_response(response, label: str) -> dict | list:
     """
     Extract and parse a JSON object from a Claude API response.
 

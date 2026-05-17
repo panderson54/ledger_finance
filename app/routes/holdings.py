@@ -16,7 +16,7 @@ from app import db
 from app.account_categories import ALLOCATION_CLASSES
 
 _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-_MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10 MB
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +377,8 @@ def api_import_holdings_screenshot(account_id):
     if mime_type not in _ALLOWED_IMAGE_TYPES:
         return _bad_request(f'unsupported image type: {mime_type}')
 
+    if request.content_length is not None and request.content_length > _MAX_IMAGE_BYTES:
+        return _bad_request('image file exceeds 10 MB limit')
     image_bytes = file.read()
     if len(image_bytes) > _MAX_IMAGE_BYTES:
         return _bad_request('image file exceeds 10 MB limit')

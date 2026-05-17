@@ -1064,6 +1064,17 @@ document.getElementById('categorySelect').addEventListener('change', function ()
         return map;
     }
 
+    function updateImportCount() {
+        const count = previewTbody.querySelectorAll('tr').length;
+        confirmBtn.textContent = `Import ${count} Holding${count !== 1 ? 's' : ''}`;
+        confirmBtn.disabled = count === 0;
+    }
+
+    previewTbody.addEventListener('click', e => {
+        const btn = e.target.closest('.btn-remove-holding');
+        if (btn) { btn.closest('tr').remove(); updateImportCount(); }
+    });
+
     function renderPreview(holdings) {
         const existing = existingTickerMap();
         previewTbody.innerHTML = '';
@@ -1073,62 +1084,59 @@ document.getElementById('categorySelect').addEventListener('change', function ()
                 ? '<span class="badge bg-primary">Update</span>'
                 : '<span class="badge bg-success">New</span>';
             const tr = document.createElement('tr');
-            tr.dataset.ticker    = h.ticker;
-            tr.dataset.shares    = h.shares;
+            tr.dataset.ticker     = h.ticker;
+            tr.dataset.shares     = h.shares;
             tr.dataset.existingId = existingId || '';
             tr.innerHTML = `
                 <td class="fw-semibold">${h.ticker}</td>
                 <td>${Number(h.shares).toLocaleString('en-US', {maximumFractionDigits: 8})}</td>
                 <td>${badge}</td>
-                <td><button type="button" class="btn btn-sm btn-link text-danger p-0 lh-1"
-                            onclick="this.closest('tr').remove(); _updateImportCount();">&#215;</button></td>`;
+                <td><button type="button" class="btn btn-sm btn-link text-danger p-0 lh-1 btn-remove-holding">&#215;</button></td>`;
             previewTbody.appendChild(tr);
         });
         resultsEl.style.display = '';
         confirmBtn.style.display = '';
-        _updateImportCount();
+        updateImportCount();
     }
-
-    window._updateImportCount = function () {
-        const count = previewTbody.querySelectorAll('tr').length;
-        confirmBtn.textContent = `Import ${count} Holding${count !== 1 ? 's' : ''}`;
-        confirmBtn.disabled = count === 0;
-    };
 
     confirmBtn.addEventListener('click', async function () {
         confirmBtn.disabled = true;
         const rows = Array.from(previewTbody.querySelectorAll('tr'));
-        let done = 0;
 
-        for (const row of rows) {
+        const results = await Promise.allSettled(rows.map(row => {
             const ticker     = row.dataset.ticker;
             const shares     = parseFloat(row.dataset.shares);
             const existingId = row.dataset.existingId;
-            try {
-                if (existingId) {
-                    await fetch(`/api/holdings/${existingId}`, {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({shares}),
-                    });
-                } else {
-                    await fetch(`/api/accounts/${ACCOUNT_ID}/holdings`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ticker, shares, allocations: {}}),
-                    });
-                }
-                done++;
-            } catch (_) { /* continue with remaining */ }
-        }
+            if (existingId) {
+                return fetch(`/api/holdings/${existingId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({shares}),
+                });
+            }
+            return fetch(`/api/accounts/${ACCOUNT_ID}/holdings`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ticker, shares, allocations: {}}),
+            });
+        }));
+
+        const done   = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.length - done;
 
         modal.hide();
         loadHoldings();
 
         const toast = document.createElement('div');
-        toast.className = 'position-fixed bottom-0 end-0 m-3 alert alert-success shadow-sm py-2 px-3';
+        toast.className = 'position-fixed bottom-0 end-0 m-3 alert shadow-sm py-2 px-3';
         toast.style.zIndex = '9999';
-        toast.textContent = `✓ ${done} holding${done !== 1 ? 's' : ''} imported`;
+        if (failed > 0) {
+            toast.classList.add('alert-warning');
+            toast.textContent = `✓ ${done} imported, ${failed} failed`;
+        } else {
+            toast.classList.add('alert-success');
+            toast.textContent = `✓ ${done} holding${done !== 1 ? 's' : ''} imported`;
+        }
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 3000);
     });
