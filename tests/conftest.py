@@ -18,6 +18,7 @@ def app():
     application = create_app()
     application.config.update(
         TESTING=True,
+        WTF_CSRF_ENABLED=False,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_ENGINE_OPTIONS={
             "connect_args": {"check_same_thread": False},
