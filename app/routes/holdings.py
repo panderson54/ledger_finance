@@ -1,7 +1,9 @@
 """
 Holdings and price API routes:
-  /api/accounts/<id>/holdings, /api/holdings/<id>, /api/prices/*
+  /api/accounts/<id>/holdings, /api/holdings/<id>, /api/prices/*,
+  /api/accounts/<id>/holdings/refresh-all
 """
+import json
 import logging
 import os
 
@@ -9,7 +11,7 @@ from flask import jsonify, request
 
 from app.routes import main_bp
 from app.routes.helpers import _holding_to_dict, _bad_request, _not_found, _get_app_setting
-from app.models import Account, Holding, HoldingAllocation
+from app.models import Account, Holding, HoldingAllocation, TickerClassification
 from app import db
 from app.account_categories import ALLOCATION_CLASSES
 
@@ -180,19 +182,28 @@ def api_price_lookup(ticker):
 @main_bp.route('/api/prices/refresh', methods=['POST'])
 def api_prices_refresh():
     """
-    Refresh prices for all active holdings.
-    Skips holdings whose last_fetched is within the last 24 hours.
+    Refresh prices for active holdings.
+    Query params:
+        account_id=<int>  limit to a single account (optional; default: all accounts)
+        force=1           bypass the 24-hour staleness check
     Returns {updated, skipped, failed, errors}.
     """
     from app.price_service import get_price, is_stale
     from datetime import datetime, timezone
 
-    holdings = Holding.query.filter_by(is_active=True).all()
+    account_id = request.args.get('account_id', type=int)
+    force = request.args.get('force', '').lower() in ('1', 'true')
+
+    q = Holding.query.filter_by(is_active=True)
+    if account_id:
+        q = q.filter_by(account_id=account_id)
+    holdings = q.all()
+
     updated = skipped = failed = 0
     errors = []
 
     for h in holdings:
-        if not is_stale(h.last_fetched):
+        if not force and not is_stale(h.last_fetched):
             skipped += 1
             continue
         try:
@@ -209,6 +220,135 @@ def api_prices_refresh():
     db.session.commit()
     logger.info('Price refresh: updated=%d skipped=%d failed=%d', updated, skipped, failed)
     return jsonify({'updated': updated, 'skipped': skipped, 'failed': failed, 'errors': errors})
+
+
+@main_bp.route('/api/accounts/<int:account_id>/holdings/refresh-all', methods=['POST'])
+def api_holdings_refresh_all(account_id):
+    """
+    Full AI-powered holdings refresh for a single account.
+    Per active holding:
+      1. Force-refreshes the price via yfinance (bypasses staleness).
+      2. If AI is enabled: re-classifies via Claude, updating HoldingAllocation
+         rows and cap_class from the returned sector_weights / market_cap_tilt.
+      3. If AI is enabled: force-fetches dividend data via Claude.
+    Returns {results, summary}.
+    """
+    from datetime import datetime, timezone
+    from app.price_service import get_price
+
+    account = db.session.get(Account, account_id)
+    if account is None:
+        return jsonify({'error': 'Account not found'}), 404
+
+    holdings = Holding.query.filter_by(account_id=account_id, is_active=True).all()
+    if not holdings:
+        return jsonify({
+            'results': [],
+            'summary': {
+                'total': 0, 'price_updated': 0,
+                'classified': 0, 'dividend_updated': 0,
+                'failed': 0, 'ai_enabled': False,
+            },
+        })
+
+    ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
+    api_key = (
+        _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+    ) if ai_enabled else ''
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    results = []
+    price_updated = classified = dividend_updated = total_failed = 0
+
+    for h in holdings:
+        row = {
+            'ticker': h.ticker,
+            'price_ok': False,
+            'classified': False,
+            'dividend_ok': False,
+            'errors': [],
+        }
+
+        # 1. Force-refresh price
+        try:
+            price, name = get_price(h.ticker)
+            h.last_price = price
+            h.name = name
+            h.last_fetched = now
+            row['price_ok'] = True
+            price_updated += 1
+        except Exception as e:
+            row['errors'].append(f'price: {e}')
+            total_failed += 1
+            logger.warning('Refresh-all price failed: ticker=%s error=%s', h.ticker, e)
+
+        # 2. AI classification — force re-classify (delete cache, call Claude)
+        if ai_enabled and api_key:
+            try:
+                from app.classification_service import classify_ticker
+                cls_result = classify_ticker(h.ticker, api_key)
+
+                existing = TickerClassification.query.filter_by(ticker=h.ticker).first()
+                if existing:
+                    db.session.delete(existing)
+                    db.session.flush()
+
+                db.session.add(TickerClassification(
+                    ticker=h.ticker,
+                    asset_class=cls_result['asset_class'],
+                    market_cap_tilt=cls_result['market_cap_tilt'],
+                    sector_weights=json.dumps(cls_result['sector_weights']),
+                    source='claude',
+                    classified_at=now,
+                ))
+
+                # Update holding metadata from classification result
+                h.cap_class = cls_result['market_cap_tilt']
+                HoldingAllocation.query.filter_by(holding_id=h.id).delete()
+                for asset_cls, pct in cls_result['sector_weights'].items():
+                    if pct > 0:
+                        db.session.add(HoldingAllocation(
+                            holding_id=h.id, asset_class=asset_cls, percentage=pct,
+                        ))
+
+                row['classified'] = True
+                row['asset_class'] = cls_result['asset_class']
+                row['cap_class'] = cls_result['market_cap_tilt']
+                classified += 1
+            except Exception as e:
+                row['errors'].append(f'classification: {e}')
+                logger.warning('Refresh-all classify failed: ticker=%s error=%s', h.ticker, e)
+
+        # 3. Dividend data — force re-fetch from Claude
+        if ai_enabled and api_key:
+            try:
+                from app.dividend_service import get_or_fetch
+                _, from_cache = get_or_fetch(h.ticker, api_key, force=True)
+                row['dividend_ok'] = True
+                if not from_cache:
+                    dividend_updated += 1
+            except Exception as e:
+                row['errors'].append(f'dividend: {e}')
+                logger.warning('Refresh-all dividend failed: ticker=%s error=%s', h.ticker, e)
+
+        results.append(row)
+
+    db.session.commit()
+    logger.info(
+        'Holdings refresh-all: account=%d price=%d classified=%d dividend=%d failed=%d',
+        account_id, price_updated, classified, dividend_updated, total_failed,
+    )
+    return jsonify({
+        'results': results,
+        'summary': {
+            'total': len(holdings),
+            'price_updated': price_updated,
+            'classified': classified,
+            'dividend_updated': dividend_updated,
+            'failed': total_failed,
+            'ai_enabled': ai_enabled,
+        },
+    })
 
 
 # ---------------------------------------------------------------------------
