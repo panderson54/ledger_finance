@@ -67,6 +67,45 @@ app/
 
 ---
 
+## Pre-Commit Clean Code Pass
+
+Before creating any commit, run a clean code pass over all changed files. Check each of the following:
+
+### SOLID & DRY
+- Does any new function duplicate logic that already exists elsewhere? Search for helpers in `app/routes/helpers.py`, `app/ai_utils.py`, `app/account_categories.py`, and adjacent service modules before writing new code.
+- Does any new service function share boilerplate with an existing one? Extract a private helper (e.g., `_call_claude(messages, api_key)` in a service) rather than copying the structure.
+- Does any route handler contain business logic that belongs in a service?
+
+### Readability & Comments
+- Remove any docstring or comment that describes WHAT the code does — well-named identifiers do that already.
+- Keep only comments that explain a non-obvious WHY: a hidden constraint, a subtle invariant, a workaround, or a surprising omission (e.g., "does not persist — frontend confirms before saving").
+- Prefer one-liner docstrings over multi-line blocks. No multi-paragraph docstrings.
+
+### Code Duplication in JS/Frontend
+- Any two JS functions that differ only by a field name or string constant should be unified into a single function with a parameter.
+- State management functions (e.g., `setLoading`, `resetModal`) should only control the elements they own — do not reach into other components' state from inside them.
+
+### Logging
+- Every service call that hits an external API (Claude, yfinance) should log at `INFO` level with structured fields: what was called, what account/resource it applies to, and what was returned (count, result summary).
+- Every caught exception that returns a 4xx/5xx should log at `WARNING` level with `%s` formatting (not f-strings), so the message is only formatted if the log level is active.
+
+### Test Coverage
+- Every new public function in a service module needs at least: success case, empty/no-op case, invalid input case, and API/external failure case.
+- Every new route needs at least: resource not found (404), missing auth/config (503), invalid input (400), and success (200).
+- Do not add tests that exercise the same code path twice under different names.
+
+### Run the test suite
+```bash
+# Windows
+.\venv\Scripts\python -m pytest tests/ -q
+
+# Mac/Linux
+python -m pytest tests/ -q
+```
+All tests must pass before committing.
+
+---
+
 ## Database Migrations
 
 **Before running any `flask db upgrade` or `flask db migrate`, always back up the database first:**

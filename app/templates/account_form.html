@@ -143,10 +143,9 @@
                 <span class="text-muted fw-normal small ms-1">— individual tickers; allocation derived from these when present</span>
             </p>
             <div class="d-flex gap-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnImportScreenshot">
-                    Import from Screenshot
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnImportAI">
+                    Import with AI
                 </button>
-                <input type="file" id="screenshotFileInput" accept="image/*" style="display:none">
                 <button type="button" class="btn btn-sm btn-outline-primary" id="btnRefreshPrices">
                     Refresh Prices
                 </button>
@@ -959,23 +958,47 @@ document.getElementById('categorySelect').addEventListener('change', function ()
 </script>
 
 {% if account and values.category in investment_cats %}
-<!-- Screenshot Import Modal -->
-<div class="modal fade" id="screenshotImportModal" tabindex="-1" aria-labelledby="screenshotImportModalLabel" aria-hidden="true">
+<!-- AI Holdings Import Modal -->
+<div class="modal fade" id="aiImportModal" tabindex="-1" aria-labelledby="aiImportModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="screenshotImportModalLabel">Import Holdings from Screenshot</h5>
+                <h5 class="modal-title" id="aiImportModalLabel">Import Holdings with AI</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div id="screenshotLoading" class="text-center py-4" style="display:none">
-                    <div class="spinner-border text-primary" role="status"></div>
-                    <p class="mt-2 text-muted">Analyzing screenshot&hellip;</p>
+                <div id="aiImportInput">
+                    <div id="aiImportError" class="alert alert-warning mb-3" style="display:none"></div>
+                    <ul class="nav nav-tabs mb-3" id="aiImportTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="tab-image" data-bs-toggle="tab" data-bs-target="#panel-image" type="button" role="tab">Upload Image</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tab-text" data-bs-toggle="tab" data-bs-target="#panel-text" type="button" role="tab">Paste Text</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="panel-image" role="tabpanel">
+                            <p class="text-muted small">Upload a screenshot of your brokerage holdings page. Supports JPG, PNG, WebP, GIF (max 10 MB).</p>
+                            <div class="d-flex align-items-center gap-2">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="btnChooseImage">Choose Image&hellip;</button>
+                                <span id="imageFileName" class="text-muted small"></span>
+                            </div>
+                            <input type="file" id="aiImageFileInput" accept="image/*" style="display:none">
+                        </div>
+                        <div class="tab-pane fade" id="panel-text" role="tabpanel">
+                            <p class="text-muted small">Copy your holdings table from your broker's website and paste it below. Claude will figure out the structure.</p>
+                            <textarea id="aiTextInput" class="form-control font-monospace" rows="8" placeholder="Paste holdings data here&hellip;"></textarea>
+                        </div>
+                    </div>
                 </div>
-                <div id="screenshotError" class="alert alert-warning" style="display:none"></div>
-                <div id="screenshotResults" style="display:none">
+                <div id="aiImportLoading" class="text-center py-4" style="display:none">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Analyzing with AI&hellip;</p>
+                </div>
+                <div id="aiImportResults" style="display:none">
                     <p class="text-muted small mb-2">Review extracted holdings. Remove any that look incorrect before importing.</p>
-                    <table class="table table-sm" id="screenshotPreviewTable">
+                    <table class="table table-sm" id="aiPreviewTable">
                         <thead class="table-light">
                             <tr>
                                 <th>Ticker</th>
@@ -986,13 +1009,13 @@ document.getElementById('categorySelect').addEventListener('change', function ()
                         </thead>
                         <tbody></tbody>
                     </table>
+                    <button type="button" class="btn btn-link btn-sm p-0" id="btnStartOver">&larr; Start over</button>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="btnConfirmImport" style="display:none">
-                    Import Holdings
-                </button>
+                <button type="button" class="btn btn-primary" id="btnAnalyzeAI">Analyze with AI</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmImport" style="display:none">Import Holdings</button>
             </div>
         </div>
     </div>
@@ -1000,66 +1023,109 @@ document.getElementById('categorySelect').addEventListener('change', function ()
 
 <script>
 (function () {
-    if (!document.getElementById('btnImportScreenshot')) return;
+    if (!document.getElementById('btnImportAI')) return;
 
-    const fileInput   = document.getElementById('screenshotFileInput');
-    const importBtn   = document.getElementById('btnImportScreenshot');
-    const modalEl     = document.getElementById('screenshotImportModal');
-    const modal       = new bootstrap.Modal(modalEl);
-    const loadingEl   = document.getElementById('screenshotLoading');
-    const errorEl     = document.getElementById('screenshotError');
-    const resultsEl   = document.getElementById('screenshotResults');
-    const previewTbody = document.querySelector('#screenshotPreviewTable tbody');
-    const confirmBtn  = document.getElementById('btnConfirmImport');
+    const importBtn    = document.getElementById('btnImportAI');
+    const modalEl      = document.getElementById('aiImportModal');
+    const modal        = new bootstrap.Modal(modalEl);
+    const inputEl      = document.getElementById('aiImportInput');
+    const fileInput    = document.getElementById('aiImageFileInput');
+    const chooseBtn    = document.getElementById('btnChooseImage');
+    const fileNameEl   = document.getElementById('imageFileName');
+    const textArea     = document.getElementById('aiTextInput');
+    const loadingEl    = document.getElementById('aiImportLoading');
+    const errorEl      = document.getElementById('aiImportError');
+    const resultsEl    = document.getElementById('aiImportResults');
+    const previewTbody = document.querySelector('#aiPreviewTable tbody');
+    const analyzeBtn   = document.getElementById('btnAnalyzeAI');
+    const confirmBtn   = document.getElementById('btnConfirmImport');
+    const startOverBtn = document.getElementById('btnStartOver');
 
-    importBtn.addEventListener('click', () => fileInput.click());
+    let selectedFile = null;
+
+    importBtn.addEventListener('click', () => { resetModal(); modal.show(); });
+    chooseBtn.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', function () {
         if (!this.files || !this.files[0]) return;
-        const file = this.files[0];
-        this.value = '';  // allow re-selecting the same file
-
-        // Reset and open modal
-        loadingEl.style.display = '';
+        selectedFile = this.files[0];
+        fileNameEl.textContent = selectedFile.name;
         errorEl.style.display = 'none';
-        resultsEl.style.display = 'none';
-        confirmBtn.style.display = 'none';
-        previewTbody.innerHTML = '';
-        modal.show();
-
-        const fd = new FormData();
-        fd.append('image', file);
-
-        fetch(`/api/accounts/${ACCOUNT_ID}/holdings/import-screenshot`, {method: 'POST', body: fd})
-            .then(r => r.json())
-            .then(data => {
-                loadingEl.style.display = 'none';
-                if (data.error) { showModalError(data.error); return; }
-                const holdings = data.holdings || [];
-                if (!holdings.length) {
-                    showModalError('No holdings could be extracted. Make sure the screenshot clearly shows ticker symbols and share quantities.');
-                    return;
-                }
-                renderPreview(holdings);
-            })
-            .catch(() => {
-                loadingEl.style.display = 'none';
-                showModalError('Network error — could not process screenshot.');
-            });
+        this.value = '';
     });
 
-    function showModalError(msg) {
+    analyzeBtn.addEventListener('click', () => {
+        const activeTab = document.querySelector('#aiImportTabs .nav-link.active').id;
+        if (activeTab === 'tab-image') {
+            if (!selectedFile) { showError('Please choose an image file first.'); return; }
+            submitData('image', selectedFile);
+        } else {
+            const text = textArea.value.trim();
+            if (!text) { showError('Please paste your holdings data first.'); return; }
+            submitData('text', text);
+        }
+    });
+
+    function submitData(fieldName, fieldValue) {
+        setLoading(true);
+        const fd = new FormData();
+        fd.append(fieldName, fieldValue);
+        fetch(`/api/accounts/${ACCOUNT_ID}/holdings/import-ai`, {method: 'POST', body: fd})
+            .then(r => r.json()).then(handleResponse)
+            .catch(() => { setLoading(false); showError(`Network error — could not process ${fieldName}.`); });
+    }
+
+    function handleResponse(data) {
+        setLoading(false);
+        if (data.error) { showError(data.error); return; }
+        const holdings = data.holdings || [];
+        if (!holdings.length) {
+            showError('No holdings could be extracted. Try a clearer screenshot or more complete text.');
+            return;
+        }
+        renderPreview(holdings);
+    }
+
+    function setLoading(on) {
+        inputEl.style.display    = on ? 'none' : '';
+        loadingEl.style.display  = on ? '' : 'none';
+        analyzeBtn.style.display = on ? 'none' : '';
+        if (!on) errorEl.style.display = 'none';
+    }
+
+    function showError(msg) {
         errorEl.textContent = msg;
         errorEl.style.display = '';
-        confirmBtn.style.display = 'none';
     }
+
+    function resetModal() {
+        selectedFile = null;
+        fileNameEl.textContent = '';
+        textArea.value = '';
+        fileInput.value = '';
+        errorEl.style.display   = 'none';
+        loadingEl.style.display  = 'none';
+        resultsEl.style.display  = 'none';
+        inputEl.style.display    = '';
+        analyzeBtn.style.display = '';
+        confirmBtn.style.display = 'none';
+        previewTbody.innerHTML   = '';
+        const imageTabEl = document.getElementById('tab-image');
+        (bootstrap.Tab.getInstance(imageTabEl) || new bootstrap.Tab(imageTabEl)).show();
+    }
+
+    startOverBtn.addEventListener('click', () => {
+        resultsEl.style.display  = 'none';
+        confirmBtn.style.display = 'none';
+        inputEl.style.display    = '';
+        analyzeBtn.style.display = '';
+        errorEl.style.display    = 'none';
+    });
 
     function existingTickerMap() {
         const map = {};
         if (window._holdingsData) {
-            Object.values(window._holdingsData).forEach(h => {
-                map[h.ticker.toUpperCase()] = h.id;
-            });
+            Object.values(window._holdingsData).forEach(h => { map[h.ticker.toUpperCase()] = h.id; });
         }
         return map;
     }
@@ -1094,7 +1160,9 @@ document.getElementById('categorySelect').addEventListener('change', function ()
                 <td><button type="button" class="btn btn-sm btn-link text-danger p-0 lh-1 btn-remove-holding">&#215;</button></td>`;
             previewTbody.appendChild(tr);
         });
-        resultsEl.style.display = '';
+        inputEl.style.display    = 'none';
+        resultsEl.style.display  = '';
+        analyzeBtn.style.display = 'none';
         confirmBtn.style.display = '';
         updateImportCount();
     }
