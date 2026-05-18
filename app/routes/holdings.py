@@ -5,15 +5,16 @@ Holdings and price API routes:
 """
 import json
 import logging
-import os
 
 from flask import jsonify, request
 
 from app.routes import main_bp
-from app.routes.helpers import _holding_to_dict, _bad_request, _not_found, _get_app_setting
+from app.routes.helpers import (
+    _holding_to_dict, _bad_request, _not_found,
+    _get_app_setting, _get_anthropic_api_key, _validate_allocation_splits,
+)
 from app.models import Account, Holding, HoldingAllocation, TickerClassification
 from app import db
-from app.account_categories import ALLOCATION_CLASSES
 
 _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -59,16 +60,9 @@ def api_holding_create(account_id):
     except (ValueError, TypeError):
         return jsonify({'error': 'shares must be a non-negative number'}), 400
 
-    allocs_raw: dict = data.get('allocations') or {}
-    allocs = {}
-    for cls in ALLOCATION_CLASSES:
-        try:
-            allocs[cls] = float(allocs_raw.get(cls, 0))
-        except (ValueError, TypeError):
-            allocs[cls] = 0.0
-    alloc_sum = sum(allocs.values())
-    if alloc_sum > 0 and abs(alloc_sum - 100.0) > 0.5:
-        return jsonify({'error': f'Allocation percentages must sum to 100 (got {alloc_sum:.1f})'}), 400
+    allocs, alloc_err = _validate_allocation_splits(data.get('allocations') or {})
+    if alloc_err:
+        return jsonify({'error': alloc_err}), 400
 
     holding = Holding(
         account_id=account_id,
@@ -123,16 +117,9 @@ def api_holding_update(holding_id):
         holding.cap_class = data['cap_class'] or None
 
     if 'allocations' in data:
-        allocs_raw = data['allocations'] or {}
-        allocs = {}
-        for cls in ALLOCATION_CLASSES:
-            try:
-                allocs[cls] = float(allocs_raw.get(cls, 0))
-            except (ValueError, TypeError):
-                allocs[cls] = 0.0
-        alloc_sum = sum(allocs.values())
-        if alloc_sum > 0 and abs(alloc_sum - 100.0) > 0.5:
-            return jsonify({'error': f'Allocation percentages must sum to 100 (got {alloc_sum:.1f})'}), 400
+        allocs, alloc_err = _validate_allocation_splits(data['allocations'] or {})
+        if alloc_err:
+            return jsonify({'error': alloc_err}), 400
         HoldingAllocation.query.filter_by(holding_id=holding.id).delete()
         for cls, pct in allocs.items():
             if pct > 0:
@@ -252,9 +239,7 @@ def api_holdings_refresh_all(account_id):
         })
 
     ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
-    api_key = (
-        _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
-    ) if ai_enabled else ''
+    api_key = _get_anthropic_api_key() if ai_enabled else ''
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     results = []
@@ -365,7 +350,7 @@ def api_import_holdings_screenshot(account_id):
     if account is None:
         return _not_found('account')
 
-    api_key = _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+    api_key = _get_anthropic_api_key()
     if not api_key:
         return jsonify({'error': 'Anthropic API key not configured'}), 503
 

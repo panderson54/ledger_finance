@@ -550,5 +550,6 @@ def _log_import(db, ImportLog, filename, records, status, error_msg=None, detail
         )
         db.session.add(log)
         db.session.commit()
-    except Exception:
+    except Exception as e:
+        logger.warning('Failed to write import log for file=%s: %s', filename, e)
         db.session.rollback()

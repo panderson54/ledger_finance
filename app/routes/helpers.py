@@ -3,6 +3,7 @@ Shared helper functions for route handlers.
 No import of main_bp here — these are pure utilities imported by sub-modules.
 """
 import logging
+import os
 import re
 import calendar
 import json
@@ -429,6 +430,26 @@ def _set_app_setting(key: str, value: str, description: str = '') -> None:
 # Holdings helpers
 # ---------------------------------------------------------------------------
 
+def _validate_allocation_splits(allocs_raw: dict) -> tuple[dict, str | None]:
+    """
+    Parse allocation percentages from a raw dict and validate they sum to ~100.
+
+    Returns (allocs, error_msg). error_msg is None when the splits are valid.
+    A zero sum is allowed (no splits submitted yet); only a non-zero sum that
+    differs from 100 by more than 0.5 is rejected.
+    """
+    allocs = {}
+    for cls in ALLOCATION_CLASSES:
+        try:
+            allocs[cls] = float(allocs_raw.get(cls, 0))
+        except (ValueError, TypeError):
+            allocs[cls] = 0.0
+    alloc_sum = sum(allocs.values())
+    if alloc_sum > 0 and abs(alloc_sum - 100.0) > 0.5:
+        return allocs, f'Allocation percentages must sum to 100 (got {alloc_sum:.1f})'
+    return allocs, None
+
+
 def _account_holding_splits(account_id: int) -> tuple[dict[str, float], float] | None:
     """
     If an account has active holdings with allocation splits, compute effective
@@ -527,12 +548,16 @@ def _rental_to_dict(prop):
 # API key / AI feature check
 # ---------------------------------------------------------------------------
 
+def _get_anthropic_api_key() -> str:
+    """Return the Anthropic API key from app settings, falling back to the environment."""
+    return _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+
+
 def _get_api_key_and_check_enabled():
     """Return (api_key, error_response) — error_response is None if all good."""
-    import os
     if _get_app_setting('claude_classification_enabled', 'false') != 'true':
         return None, (jsonify({'error': 'AI features are disabled', 'manual_required': True}), 503)
-    api_key = _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+    api_key = _get_anthropic_api_key()
     if not api_key:
         return None, (jsonify({'error': 'ANTHROPIC_API_KEY is not configured', 'manual_required': True}), 503)
     return api_key, None
