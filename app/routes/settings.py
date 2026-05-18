@@ -3,12 +3,11 @@ Settings routes:
   /settings, /api/settings, /api/classifications, /api/classify/*
 """
 import logging
-import os
 
 from flask import render_template, jsonify, request
 
 from app.routes import main_bp
-from app.routes.helpers import _get_app_setting, _set_app_setting
+from app.routes.helpers import _get_app_setting, _set_app_setting, _get_api_key_and_check_enabled
 from app.models import TickerClassification
 from app import db
 
@@ -90,12 +89,9 @@ def api_classify_ticker(ticker):
     """
     from app.classification_service import get_or_classify
 
-    if _get_app_setting('claude_classification_enabled', 'false') != 'true':
-        return jsonify({'error': 'AI classification is disabled', 'manual_required': True}), 503
-
-    api_key = _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
-    if not api_key:
-        return jsonify({'error': 'ANTHROPIC_API_KEY is not configured', 'manual_required': True}), 503
+    api_key, err = _get_api_key_and_check_enabled()
+    if err:
+        return err
 
     ticker = ticker.strip().upper()
     if not ticker:

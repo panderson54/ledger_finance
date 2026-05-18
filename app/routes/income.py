@@ -3,7 +3,6 @@ Passive income routes:
   /api/passive-income, /api/dividend-data/*, /api/rental-income, /api/portfolio-income
 """
 import logging
-import os
 from datetime import datetime
 
 from flask import jsonify, request
@@ -13,6 +12,7 @@ from app.routes.helpers import (
     _get_app_setting,
     _set_app_setting,
     _get_api_key_and_check_enabled,
+    _get_anthropic_api_key,
     _rental_to_dict,
 )
 from app.models import Account, AccountSnapshot, Holding, DividendData, RentalProperty
@@ -135,7 +135,7 @@ def api_passive_income():
         })
 
     ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
-    api_key    = _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '') if ai_enabled else ''
+    api_key    = _get_anthropic_api_key() if ai_enabled else ''
 
     # Build account lookup for tax_status
     account_ids = {h.account_id for h in holdings}

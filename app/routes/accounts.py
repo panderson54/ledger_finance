@@ -118,8 +118,8 @@ def account_new():
                 db.session.add(snap)
                 db.session.commit()
                 _recalculate_metrics(month_date)
-            except (ValueError, Exception):
-                pass
+            except Exception as e:
+                logger.warning('Opening balance skipped for account id=%d: %s', account.id, e)
         flash(f'Account "{account.name}" created successfully.', 'success')
         return redirect(url_for('main.accounts'))
     return render_template('account_form.html', errors=[], values=_FORM_DEFAULTS,
