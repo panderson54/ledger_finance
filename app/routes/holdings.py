@@ -10,10 +10,13 @@ import os
 from flask import jsonify, request
 
 from app.routes import main_bp
-from app.routes.helpers import _holding_to_dict, _get_app_setting
+from app.routes.helpers import _holding_to_dict, _bad_request, _not_found, _get_app_setting
 from app.models import Account, Holding, HoldingAllocation, TickerClassification
 from app import db
 from app.account_categories import ALLOCATION_CLASSES
+
+_ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 logger = logging.getLogger(__name__)
 
@@ -346,3 +349,46 @@ def api_holdings_refresh_all(account_id):
             'ai_enabled': ai_enabled,
         },
     })
+
+
+# ---------------------------------------------------------------------------
+# Screenshot import API
+# ---------------------------------------------------------------------------
+
+@main_bp.route('/api/accounts/<int:account_id>/holdings/import-screenshot', methods=['POST'])
+def api_import_holdings_screenshot(account_id):
+    """
+    Accept a brokerage screenshot image and return extracted {ticker, shares} pairs.
+    Does not write to the database — the frontend previews and confirms each holding.
+    """
+    account = db.session.get(Account, account_id)
+    if account is None:
+        return _not_found('account')
+
+    api_key = _get_app_setting('anthropic_api_key') or os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return jsonify({'error': 'Anthropic API key not configured'}), 503
+
+    file = request.files.get('image')
+    if not file:
+        return _bad_request('image file is required')
+
+    mime_type = file.content_type or ''
+    if mime_type not in _ALLOWED_IMAGE_TYPES:
+        return _bad_request(f'unsupported image type: {mime_type}')
+
+    if request.content_length is not None and request.content_length > _MAX_IMAGE_BYTES:
+        return _bad_request('image file exceeds 10 MB limit')
+    image_bytes = file.read()
+    if len(image_bytes) > _MAX_IMAGE_BYTES:
+        return _bad_request('image file exceeds 10 MB limit')
+
+    try:
+        from app.holdings_import_service import extract_holdings_from_image
+        holdings = extract_holdings_from_image(image_bytes, mime_type, api_key)
+    except (ValueError, RuntimeError) as exc:
+        logger.warning('Screenshot holdings extraction failed: %s', exc)
+        return jsonify({'error': str(exc)}), 500
+
+    logger.info('Screenshot import: account_id=%d extracted=%d holdings', account_id, len(holdings))
+    return jsonify({'holdings': holdings})

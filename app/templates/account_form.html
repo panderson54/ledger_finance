@@ -143,6 +143,10 @@
                 <span class="text-muted fw-normal small ms-1">— individual tickers; allocation derived from these when present</span>
             </p>
             <div class="d-flex gap-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="btnImportScreenshot">
+                    Import from Screenshot
+                </button>
+                <input type="file" id="screenshotFileInput" accept="image/*" style="display:none">
                 <button type="button" class="btn btn-sm btn-outline-primary" id="btnRefreshPrices">
                     Refresh Prices
                 </button>
@@ -953,4 +957,190 @@ document.getElementById('categorySelect').addEventListener('change', function ()
     });
 })();
 </script>
+
+{% if account and values.category in investment_cats %}
+<!-- Screenshot Import Modal -->
+<div class="modal fade" id="screenshotImportModal" tabindex="-1" aria-labelledby="screenshotImportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="screenshotImportModalLabel">Import Holdings from Screenshot</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="screenshotLoading" class="text-center py-4" style="display:none">
+                    <div class="spinner-border text-primary" role="status"></div>
+                    <p class="mt-2 text-muted">Analyzing screenshot&hellip;</p>
+                </div>
+                <div id="screenshotError" class="alert alert-warning" style="display:none"></div>
+                <div id="screenshotResults" style="display:none">
+                    <p class="text-muted small mb-2">Review extracted holdings. Remove any that look incorrect before importing.</p>
+                    <table class="table table-sm" id="screenshotPreviewTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Ticker</th>
+                                <th>Shares</th>
+                                <th>Status</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btnConfirmImport" style="display:none">
+                    Import Holdings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    if (!document.getElementById('btnImportScreenshot')) return;
+
+    const fileInput   = document.getElementById('screenshotFileInput');
+    const importBtn   = document.getElementById('btnImportScreenshot');
+    const modalEl     = document.getElementById('screenshotImportModal');
+    const modal       = new bootstrap.Modal(modalEl);
+    const loadingEl   = document.getElementById('screenshotLoading');
+    const errorEl     = document.getElementById('screenshotError');
+    const resultsEl   = document.getElementById('screenshotResults');
+    const previewTbody = document.querySelector('#screenshotPreviewTable tbody');
+    const confirmBtn  = document.getElementById('btnConfirmImport');
+
+    importBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', function () {
+        if (!this.files || !this.files[0]) return;
+        const file = this.files[0];
+        this.value = '';  // allow re-selecting the same file
+
+        // Reset and open modal
+        loadingEl.style.display = '';
+        errorEl.style.display = 'none';
+        resultsEl.style.display = 'none';
+        confirmBtn.style.display = 'none';
+        previewTbody.innerHTML = '';
+        modal.show();
+
+        const fd = new FormData();
+        fd.append('image', file);
+
+        fetch(`/api/accounts/${ACCOUNT_ID}/holdings/import-screenshot`, {method: 'POST', body: fd})
+            .then(r => r.json())
+            .then(data => {
+                loadingEl.style.display = 'none';
+                if (data.error) { showModalError(data.error); return; }
+                const holdings = data.holdings || [];
+                if (!holdings.length) {
+                    showModalError('No holdings could be extracted. Make sure the screenshot clearly shows ticker symbols and share quantities.');
+                    return;
+                }
+                renderPreview(holdings);
+            })
+            .catch(() => {
+                loadingEl.style.display = 'none';
+                showModalError('Network error — could not process screenshot.');
+            });
+    });
+
+    function showModalError(msg) {
+        errorEl.textContent = msg;
+        errorEl.style.display = '';
+        confirmBtn.style.display = 'none';
+    }
+
+    function existingTickerMap() {
+        const map = {};
+        if (window._holdingsData) {
+            Object.values(window._holdingsData).forEach(h => {
+                map[h.ticker.toUpperCase()] = h.id;
+            });
+        }
+        return map;
+    }
+
+    function updateImportCount() {
+        const count = previewTbody.querySelectorAll('tr').length;
+        confirmBtn.textContent = `Import ${count} Holding${count !== 1 ? 's' : ''}`;
+        confirmBtn.disabled = count === 0;
+    }
+
+    previewTbody.addEventListener('click', e => {
+        const btn = e.target.closest('.btn-remove-holding');
+        if (btn) { btn.closest('tr').remove(); updateImportCount(); }
+    });
+
+    function renderPreview(holdings) {
+        const existing = existingTickerMap();
+        previewTbody.innerHTML = '';
+        holdings.forEach(h => {
+            const existingId = existing[h.ticker] || null;
+            const badge = existingId
+                ? '<span class="badge bg-primary">Update</span>'
+                : '<span class="badge bg-success">New</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.ticker     = h.ticker;
+            tr.dataset.shares     = h.shares;
+            tr.dataset.existingId = existingId || '';
+            tr.innerHTML = `
+                <td class="fw-semibold">${h.ticker}</td>
+                <td>${Number(h.shares).toLocaleString('en-US', {maximumFractionDigits: 8})}</td>
+                <td>${badge}</td>
+                <td><button type="button" class="btn btn-sm btn-link text-danger p-0 lh-1 btn-remove-holding">&#215;</button></td>`;
+            previewTbody.appendChild(tr);
+        });
+        resultsEl.style.display = '';
+        confirmBtn.style.display = '';
+        updateImportCount();
+    }
+
+    confirmBtn.addEventListener('click', async function () {
+        confirmBtn.disabled = true;
+        const rows = Array.from(previewTbody.querySelectorAll('tr'));
+
+        const results = await Promise.allSettled(rows.map(row => {
+            const ticker     = row.dataset.ticker;
+            const shares     = parseFloat(row.dataset.shares);
+            const existingId = row.dataset.existingId;
+            if (existingId) {
+                return fetch(`/api/holdings/${existingId}`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({shares}),
+                });
+            }
+            return fetch(`/api/accounts/${ACCOUNT_ID}/holdings`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ticker, shares, allocations: {}}),
+            });
+        }));
+
+        const done   = results.filter(r => r.status === 'fulfilled').length;
+        const failed = results.length - done;
+
+        modal.hide();
+        loadHoldings();
+
+        const toast = document.createElement('div');
+        toast.className = 'position-fixed bottom-0 end-0 m-3 alert shadow-sm py-2 px-3';
+        toast.style.zIndex = '9999';
+        if (failed > 0) {
+            toast.classList.add('alert-warning');
+            toast.textContent = `✓ ${done} imported, ${failed} failed`;
+        } else {
+            toast.classList.add('alert-success');
+            toast.textContent = `✓ ${done} holding${done !== 1 ? 's' : ''} imported`;
+        }
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

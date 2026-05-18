@@ -18,6 +18,7 @@ def app():
     application = create_app()
     application.config.update(
         TESTING=True,
+        WTF_CSRF_ENABLED=False,
         SQLALCHEMY_DATABASE_URI="sqlite:///:memory:",
         SQLALCHEMY_ENGINE_OPTIONS={
             "connect_args": {"check_same_thread": False},
@@ -96,6 +97,12 @@ def make_investment_account(db_session, name: str = "Brokerage", tax_status: str
     db_session.add(acct)
     db_session.commit()
     return acct
+
+
+def make_image_upload(content: bytes = b'fakeimage', filename: str = 'screenshot.jpg', content_type: str = 'image/jpeg'):
+    """Return a (stream, filename, content_type) tuple for multipart file upload in tests."""
+    import io
+    return (io.BytesIO(content), filename, content_type)
 
 
 def make_holding(db_session, account_id: int, ticker: str = "VYM", shares: float = 100, price: float = 50.0) -> Holding:

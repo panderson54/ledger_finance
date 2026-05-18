@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 # Model constants — update here when upgrading model versions
 CLASSIFICATION_MODEL = 'claude-opus-4-7'
 DIVIDEND_MODEL = 'claude-haiku-4-5-20251001'
+HOLDINGS_IMPORT_MODEL = 'claude-sonnet-4-6'
 
 
 def make_anthropic_client(api_key: str):
@@ -28,7 +29,7 @@ def make_anthropic_client(api_key: str):
     return anthropic.Anthropic(api_key=api_key)
 
 
-def parse_claude_json_response(response, label: str) -> dict:
+def parse_claude_json_response(response, label: str) -> dict | list:
     """
     Extract and parse a JSON object from a Claude API response.
 
