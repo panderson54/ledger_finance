@@ -30,7 +30,9 @@ def _call_claude(messages: list, api_key: str) -> list[dict]:
     )
     result = parse_claude_json_response(response, 'holdings_import')
     holdings = result if isinstance(result, list) else result.get('holdings', [])
-    return _validate_holdings(holdings)
+    validated = _validate_holdings(holdings)
+    logger.info('Holdings extracted via Claude: model=%s count=%d', HOLDINGS_IMPORT_MODEL, len(validated))
+    return validated
 
 
 def extract_holdings_from_image(image_bytes: bytes, mime_type: str, api_key: str) -> list[dict]:

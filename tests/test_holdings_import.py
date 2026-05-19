@@ -138,6 +138,20 @@ class TestExtractHoldingsFromText:
         with pytest.raises(ValueError):
             self._call(response_text='not valid json')
 
+    def test_empty_string_returns_empty_without_calling_claude(self):
+        from app.holdings_import_service import extract_holdings_from_text
+        with patch('app.holdings_import_service.make_anthropic_client') as mock_client:
+            result = extract_holdings_from_text('', api_key='sk-test')
+        assert result == []
+        mock_client.assert_not_called()
+
+    def test_whitespace_only_returns_empty_without_calling_claude(self):
+        from app.holdings_import_service import extract_holdings_from_text
+        with patch('app.holdings_import_service.make_anthropic_client') as mock_client:
+            result = extract_holdings_from_text('   \n\t  ', api_key='sk-test')
+        assert result == []
+        mock_client.assert_not_called()
+
     def test_make_anthropic_client_raises_runtime_error(self):
         from app.holdings_import_service import extract_holdings_from_text
         with patch('app.holdings_import_service.make_anthropic_client',

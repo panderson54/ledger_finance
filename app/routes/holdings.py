@@ -19,6 +19,8 @@ from app import db
 _ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
+logger = logging.getLogger(__name__)
+
 
 def _read_and_validate_image(file):
     """Return (image_bytes, mime_type) on success, or (None, error_response) on failure."""
@@ -31,8 +33,6 @@ def _read_and_validate_image(file):
     if len(image_bytes) > _MAX_IMAGE_BYTES:
         return None, _bad_request('image file exceeds 10 MB limit')
     return image_bytes, mime_type
-
-logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -400,12 +400,13 @@ def api_import_holdings_ai(account_id):
     file = request.files.get('image')
     text = request.form.get('text', '').strip()
 
+    from app.holdings_import_service import extract_holdings_from_image, extract_holdings_from_text
+
     if file:
         image_bytes, mime_type = _read_and_validate_image(file)
         if image_bytes is None:
             return mime_type  # error response
         try:
-            from app.holdings_import_service import extract_holdings_from_image
             holdings = extract_holdings_from_image(image_bytes, mime_type, api_key)
         except (ValueError, RuntimeError) as exc:
             logger.warning('AI import (image) failed: %s', exc)
@@ -413,7 +414,6 @@ def api_import_holdings_ai(account_id):
         logger.info('AI import (image): account_id=%d extracted=%d holdings', account_id, len(holdings))
     elif text:
         try:
-            from app.holdings_import_service import extract_holdings_from_text
             holdings = extract_holdings_from_text(text, api_key)
         except (ValueError, RuntimeError) as exc:
             logger.warning('AI import (text) failed: %s', exc)
