@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ledger — Personal Finance, Simplified</title>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #070d1a;
+    --bg-card:    rgba(255,255,255,0.04);
+    --bg-card-h:  rgba(255,255,255,0.065);
+    --border:     rgba(255,255,255,0.075);
+    --border-h:   rgba(255,255,255,0.15);
+    --green:      #10b981;
+    --green-dim:  rgba(16,185,129,0.11);
+    --green-glow: rgba(16,185,129,0.22);
+    --blue:       #6366f1;
+    --blue-dim:   rgba(99,102,241,0.12);
+    --purple:     #8b5cf6;
+    --purple-dim: rgba(139,92,246,0.12);
+    --amber:      #f59e0b;
+    --amber-dim:  rgba(245,158,11,0.11);
+    --text:       #eef2f7;
+    --muted:      #8b9eb5;
+    --dim:        #475569;
+    --r:          12px;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Geist', 'Inter', -apple-system, system-ui, sans-serif;
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  img { display: block; max-width: 100%; }
+  .container { max-width: 1180px; margin: 0 auto; padding: 0 2rem; }
+
+  /* ── Sticky nav ──────────────────────────────────── */
+  .mktg-nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 200;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    padding: 0 2rem;
+    background: rgba(7,13,26,0.78);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .nav-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: color 0.15s;
+  }
+  .nav-back:hover { color: var(--text); }
+
+  .nav-brand {
+    position: absolute;
+    left: 50%; transform: translateX(-50%);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    pointer-events: none;
+  }
+
+  .nav-open {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    background: var(--green);
+    color: #031a10;
+    padding: 0.4375rem 1rem;
+    border-radius: 7px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: opacity 0.15s, transform 0.15s;
+    box-shadow: 0 0 20px var(--green-glow);
+  }
+  .nav-open:hover { opacity: 0.88; transform: translateY(-1px); }
+
+  /* ── Hero ─────────────────────────────────────────── */
+  .hero {
+    min-height: 100vh;
+    padding: 9rem 0 6rem;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+  }
+
+  .hero-dots {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.065) 1px, transparent 1px);
+    background-size: 30px 30px;
+    mask-image: radial-gradient(ellipse 85% 75% at 50% 40%, black 20%, transparent 80%);
+    pointer-events: none;
+  }
+
+  .hero-orb-1 {
+    position: absolute;
+    top: -5%; right: 2%;
+    width: 750px; height: 750px;
+    background: radial-gradient(circle, rgba(16,185,129,0.09) 0%, transparent 65%);
+    pointer-events: none;
+  }
+  .hero-orb-2 {
+    position: absolute;
+    bottom: -15%; left: -8%;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 65%);
+    pointer-events: none;
+  }
+
+  .hero-inner {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 4rem;
+    align-items: center;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--green-dim);
+    border: 1px solid rgba(16,185,129,0.22);
+    color: var(--green);
+    padding: 0.375rem 0.9rem;
+    border-radius: 100px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    margin-bottom: 1.625rem;
+  }
+  .badge-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 7px var(--green);
+  }
+
+  .hero-h1 {
+    font-size: clamp(2.5rem, 4.5vw, 3.875rem);
+    font-weight: 800;
+    line-height: 1.07;
+    letter-spacing: -0.035em;
+    margin-bottom: 1.375rem;
+  }
+  .hero-h1 em {
+    font-style: normal;
+    background: linear-gradient(120deg, var(--green) 0%, #34d399 55%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-lead {
+    font-size: 1.125rem;
+    color: var(--muted);
+    line-height: 1.72;
+    max-width: 455px;
+    margin-bottom: 2.375rem;
+  }
+
+  .hero-btns {
+    display: flex;
+    gap: 0.875rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--green);
+    color: #021c10;
+    padding: 0.8125rem 1.625rem;
+    border-radius: 9px;
+    font-size: 0.9375rem;
+    font-weight: 700;
+    text-decoration: none;
+    box-shadow: 0 0 0 1px rgba(16,185,129,0.28), 0 8px 30px var(--green-glow);
+    transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+  }
+  .btn-primary:hover {
+    opacity: 0.9;
+    transform: translateY(-2px);
+    box-shadow: 0 0 0 1px rgba(16,185,129,0.36), 0 12px 42px rgba(16,185,129,0.35);
+  }
+
+  .btn-outline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--muted);
+    padding: 0.8125rem 1.375rem;
+    border-radius: 9px;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    text-decoration: none;
+    border: 1px solid var(--border);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .btn-outline:hover { border-color: var(--border-h); color: var(--text); }
+
+  .hero-visual { position: relative; }
+
+  .hero-screenshot {
+    width: 100%;
+    border-radius: 13px;
+    border: 1px solid var(--border);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.04),
+      0 28px 80px rgba(0,0,0,0.65),
+      0 0 70px var(--green-glow);
+  }
+
+  .hero-chip {
+    position: absolute;
+    background: rgba(9,15,32,0.9);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    padding: 0.625rem 0.875rem;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-size: 0.8125rem;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .chip-1 { bottom: -1.625rem; left: -1.875rem; }
+  .chip-2 { top: -1.125rem;   right: -1.5rem; }
+  .chip-ico { width: 30px; height: 30px; flex-shrink: 0; }
+  .chip-lbl { font-size: 0.6875rem; color: var(--muted); line-height: 1; }
+  .chip-val { font-size: 0.9375rem; font-weight: 700; line-height: 1.4; }
+  .chip-val.g { color: var(--green); }
+
+  /* ── Stats bar ───────────────────────────────────────── */
+  .stats-bar {
+    padding: 5rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-top: 2rem;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .stat-cell {
+    text-align: center;
+    padding: 0 1.5rem;
+    position: relative;
+  }
+  .stat-cell:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 10%; right: 0;
+    height: 80%; width: 1px;
+    background: var(--border);
+  }
+
+  .stat-n {
+    font-size: 2.375rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin-bottom: 0.4rem;
+  }
+  .stat-n .g { color: var(--green); }
+
+  .stat-l {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+
+  /* ── Features ────────────────────────────────────────── */
+  .features {
+    padding: 7rem 0;
+  }
+
+  .sec-eyebrow {
+    display: inline-block;
+    font-size: 0.73rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 0.75rem;
+  }
+
+  .sec-h2 {
+    font-size: clamp(1.875rem, 3vw, 2.5rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.18;
+    margin-bottom: 1rem;
+  }
+
+  .sec-lead {
+    font-size: 1.0625rem;
+    color: var(--muted);
+    max-width: 570px;
+    line-height: 1.72;
+    margin-bottom: 3.5rem;
+  }
+
+  .feat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+  }
+
+  .feat-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r);
+    padding: 1.875rem;
+    transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    cursor: default;
+  }
+  .feat-card:hover {
+    background: var(--bg-card-h);
+    border-color: var(--border-h);
+    transform: translateY(-3px);
+  }
+
+  .feat-ico {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1.125rem;
+  }
+  .feat-ico svg { width: 20px; height: 20px; flex-shrink: 0; }
+  .fi-g { background: var(--green-dim);  color: var(--green); }
+  .fi-b { background: var(--blue-dim);   color: var(--blue); }
+  .fi-p { background: var(--purple-dim); color: var(--purple); }
+  .fi-a { background: var(--amber-dim);  color: var(--amber); }
+
+  .feat-title {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    margin-bottom: 0.5rem;
+  }
+
+  .feat-desc {
+    font-size: 0.9375rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  /* ── Screenshots showcase ────────────────────────────── */
+  .showcase { padding: 3rem 0 7rem; }
+
+  .showcase-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 6rem;
+  }
+
+  .sc-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    align-items: center;
+  }
+  .sc-row.flip { direction: rtl; }
+  .sc-row.flip > * { direction: ltr; }
+
+  .sc-text .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.73rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: 0.875rem;
+  }
+
+  .sc-text h3 {
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.22;
+    margin-bottom: 0.875rem;
+  }
+
+  .sc-text p {
+    font-size: 1rem;
+    color: var(--muted);
+    line-height: 1.72;
+    margin-bottom: 1.25rem;
+  }
+
+  .check-list { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
+  .check-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    font-size: 0.9375rem;
+    color: var(--muted);
+  }
+  .check-list li::before {
+    content: '';
+    flex-shrink: 0;
+    margin-top: 3px;
+    width: 17px; height: 17px;
+    border-radius: 50%;
+    background: var(--green-dim);
+    border: 1px solid rgba(16,185,129,0.28);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpolyline fill='none' stroke='%2310b981' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round' points='2 6 5 9 10 3'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-size: 11px;
+    background-position: center;
+  }
+
+  .sc-img-wrap { position: relative; }
+  .sc-img {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: 0 18px 52px rgba(0,0,0,0.45);
+    transition: box-shadow 0.3s, transform 0.3s;
+  }
+  .sc-img-wrap:hover .sc-img {
+    box-shadow: 0 22px 64px rgba(0,0,0,0.55), 0 0 44px var(--green-glow);
+    transform: translateY(-2px);
+  }
+
+  /* ── AI Spotlight ────────────────────────────────────── */
+  .ai-sec { padding: 3rem 0 7rem; }
+
+  .ai-card {
+    position: relative;
+    background: linear-gradient(140deg, rgba(16,185,129,0.055) 0%, rgba(99,102,241,0.035) 100%);
+    border: 1px solid rgba(16,185,129,0.13);
+    border-radius: 16px;
+    padding: 3.5rem;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  .ai-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 45%; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(16,185,129,0.45), transparent);
+  }
+
+  .ai-card-text h2 {
+    font-size: clamp(1.75rem, 2.5vw, 2.25rem);
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+    margin-bottom: 1rem;
+  }
+  .ai-card-text p {
+    font-size: 1rem;
+    color: var(--muted);
+    line-height: 1.72;
+    margin-bottom: 1.5rem;
+  }
+
+  .tag-cloud { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .tag {
+    background: rgba(16,185,129,0.09);
+    border: 1px solid rgba(16,185,129,0.2);
+    color: var(--green);
+    padding: 0.3125rem 0.8125rem;
+    border-radius: 100px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+  }
+
+  /* ── CTA ─────────────────────────────────────────────── */
+  .cta-sec {
+    padding: 6rem 0 9rem;
+    text-align: center;
+  }
+
+  .cta-box {
+    position: relative;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 5rem 2rem;
+    overflow: hidden;
+  }
+  .cta-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    width: 48%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--green), transparent);
+  }
+  .cta-box::after {
+    content: '';
+    position: absolute;
+    top: -50%; left: 50%; transform: translateX(-50%);
+    width: 560px; height: 560px;
+    background: radial-gradient(circle, rgba(16,185,129,0.06) 0%, transparent 65%);
+    pointer-events: none;
+  }
+
+  .cta-h2 {
+    font-size: clamp(2rem, 3.5vw, 2.875rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 1rem;
+    position: relative; z-index: 1;
+  }
+  .cta-p {
+    font-size: 1.0625rem;
+    color: var(--muted);
+    max-width: 460px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.72;
+    position: relative; z-index: 1;
+  }
+  .cta-btns {
+    position: relative; z-index: 1;
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  /* ── Footer ──────────────────────────────────────────── */
+  .mktg-footer {
+    border-top: 1px solid var(--border);
+    padding: 1.875rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    font-size: 0.8125rem;
+    color: var(--dim);
+    flex-wrap: wrap;
+  }
+  .footer-brand { font-weight: 600; color: var(--muted); }
+  .footer-sep { color: var(--border); }
+
+  /* ── Scroll-reveal ───────────────────────────────────── */
+  .reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.55s ease, transform 0.55s ease;
+  }
+  .reveal.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* ── Responsive ──────────────────────────────────────── */
+  @media (max-width: 960px) {
+    .hero-inner { grid-template-columns: 1fr; }
+    .chip-1, .chip-2 { display: none; }
+    .hero-lead { max-width: 100%; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); row-gap: 2.5rem; }
+    .stat-cell:nth-child(even)::after { display: none; }
+    .feat-grid { grid-template-columns: 1fr; }
+    .sc-row,
+    .sc-row.flip { grid-template-columns: 1fr; direction: ltr; }
+    .ai-card { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 600px) {
+    .container { padding: 0 1.25rem; }
+    .mktg-nav { padding: 0 1.25rem; }
+    .nav-brand { display: none; }
+    .stats-row { grid-template-columns: 1fr 1fr; row-gap: 2rem; }
+    .stat-cell::after { display: none; }
+    .stat-n { font-size: 2rem; }
+    .ai-card { padding: 2rem 1.5rem; }
+    .cta-box { padding: 3.5rem 1.5rem; }
+  }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ NAV ═══════════════════════════════ -->
+<nav class="mktg-nav">
+  <a href="{{ url_for('main.index') }}" class="nav-back">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="9 2 4 7 9 12"/>
+    </svg>
+    Back to Dashboard
+  </a>
+  <span class="nav-brand">Ledger</span>
+  <a href="{{ url_for('main.index') }}" class="nav-open">
+    Open App
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 9 6"/><polyline points="6 3 9 6 6 9"/>
+    </svg>
+  </a>
+</nav>
+
+<!-- ═══════════════════════════════ HERO ══════════════════════════════ -->
+<section class="hero">
+  <div class="hero-dots"></div>
+  <div class="hero-orb-1"></div>
+  <div class="hero-orb-2"></div>
+
+  <div class="container">
+    <div class="hero-inner">
+
+      <!-- Left: text -->
+      <div class="hero-text">
+        <div class="hero-badge">
+          <span class="badge-dot"></span>
+          Personal finance that respects your time
+        </div>
+
+        <h1 class="hero-h1">
+          Your complete<br>
+          financial picture.<br>
+          <em>Five minutes</em> a month.
+        </h1>
+
+        <p class="hero-lead">
+          Ledger tracks your net worth, models your path to financial independence,
+          and uses AI to classify and project your portfolio — so you always know
+          exactly where you stand and when you can stop working.
+        </p>
+
+        <div class="hero-btns">
+          <a href="{{ url_for('main.index') }}" class="btn-primary">
+            Open Dashboard
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 7 11 7"/><polyline points="7 3 11 7 7 11"/>
+            </svg>
+          </a>
+          <a href="#features" class="btn-outline">
+            See features
+          </a>
+        </div>
+      </div>
+
+      <!-- Right: screenshot + floating chips -->
+      <div class="hero-visual">
+        <div class="hero-img-wrap">
+          <img
+            class="hero-screenshot"
+            src="{{ url_for('static', filename='screenshots/hero_dark.png') }}"
+            alt="Ledger financial dashboard"
+          >
+
+          <!-- Floating chip: net worth -->
+          <div class="hero-chip chip-1">
+            <svg class="chip-ico" viewBox="0 0 30 30" fill="none">
+              <rect width="30" height="30" rx="8" fill="rgba(16,185,129,0.15)"/>
+              <polyline points="6 20 11 14 16 17 24 9" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <polyline points="20 9 24 9 24 13" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="chip-body">
+              <div class="chip-lbl">Net Worth</div>
+              <div class="chip-val g">↑ 14.2% YTD</div>
+            </div>
+          </div>
+
+          <!-- Floating chip: save rate -->
+          <div class="hero-chip chip-2">
+            <svg class="chip-ico" viewBox="0 0 30 30" fill="none">
+              <rect width="30" height="30" rx="8" fill="rgba(99,102,241,0.15)"/>
+              <circle cx="15" cy="15" r="8" stroke="#6366f1" stroke-width="1.75"/>
+              <polyline points="15 9 15 15 19 17" stroke="#6366f1" stroke-width="1.75" stroke-linecap="round"/>
+            </svg>
+            <div class="chip-body">
+              <div class="chip-lbl">Save Rate</div>
+              <div class="chip-val">42% this month</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ STATS BAR ════════════════════════════ -->
+<div class="stats-bar">
+  <div class="container">
+    <div class="stats-row">
+
+      <div class="stat-cell">
+        <div class="stat-n"><span class="g">&lt;</span>5<span class="g"> min</span></div>
+        <div class="stat-l">Monthly update time</div>
+      </div>
+
+      <div class="stat-cell">
+        <div class="stat-n">AI<span class="g">‑</span>Powered</div>
+        <div class="stat-l">Portfolio classification</div>
+      </div>
+
+      <div class="stat-cell">
+        <div class="stat-n">Self<span class="g">‑</span>Hosted</div>
+        <div class="stat-l">Your data, your server</div>
+      </div>
+
+      <div class="stat-cell">
+        <div class="stat-n">Path<span class="g">‑</span>to<span class="g">‑</span>FI</div>
+        <div class="stat-l">Retirement modeler built in</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ FEATURES GRID ══════════════════════════ -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="reveal">
+      <div class="sec-eyebrow">Everything you need</div>
+      <h2 class="sec-h2">Clarity without complexity</h2>
+      <p class="sec-lead">
+        Ledger does one thing exceptionally well: give you a complete, accurate
+        picture of your finances with the least possible friction.
+      </p>
+    </div>
+
+    <div class="feat-grid">
+
+      <!-- Net Worth Tracking -->
+      <div class="feat-card reveal">
+        <div class="feat-ico fi-g">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="2 14 7 9 11 12 18 5"/>
+            <polyline points="14 5 18 5 18 9"/>
+          </svg>
+        </div>
+        <div class="feat-title">Net Worth Timeline</div>
+        <p class="feat-desc">
+          Log every account once a month and Ledger builds a complete net worth
+          history — investments, cash, property, liabilities. Charts show your
+          trajectory at a glance with month-over-month and year-over-year deltas.
+        </p>
+      </div>
+
+      <!-- Monthly Update -->
+      <div class="feat-card reveal">
+        <div class="feat-ico fi-b">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="16" height="15" rx="2"/>
+            <line x1="2" y1="8" x2="18" y2="8"/>
+            <line x1="6" y1="1" x2="6" y2="5"/>
+            <line x1="14" y1="1" x2="14" y2="5"/>
+            <polyline points="6 12 9 15 14 10"/>
+          </svg>
+        </div>
+        <div class="feat-title">Monthly Snapshot Entry</div>
+        <p class="feat-desc">
+          A focused data-entry screen surfaces every account with its last balance
+          pre-filled. Update only what changed. Track income and spending alongside
+          balances, and let Ledger calculate your save rate automatically.
+        </p>
+      </div>
+
+      <!-- Path to FI -->
+      <div class="feat-card reveal">
+        <div class="feat-ico fi-p">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="8"/>
+            <circle cx="10" cy="10" r="3.5"/>
+            <line x1="10" y1="2" x2="10" y2="5"/>
+            <line x1="10" y1="15" x2="10" y2="18"/>
+            <line x1="2" y1="10" x2="5" y2="10"/>
+            <line x1="15" y1="10" x2="18" y2="10"/>
+          </svg>
+        </div>
+        <div class="feat-title">Path to Financial Independence</div>
+        <p class="feat-desc">
+          Model your retirement date with adjustable safe withdrawal rates,
+          expected returns, and monthly contributions. Run multiple scenarios side
+          by side and see exactly what levers move your FI date the most.
+        </p>
+      </div>
+
+      <!-- AI Dividends -->
+      <div class="feat-card reveal">
+        <div class="feat-ico fi-a">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="8"/>
+            <path d="M10 6v1.5M10 12.5V14"/>
+            <path d="M7.5 8.5c0-1 1.1-1.5 2.5-1.5s2.5.7 2.5 2c0 2.5-5 1.5-5 4 0 1.3 1.1 2 2.5 2s2.5-.6 2.5-2"/>
+          </svg>
+        </div>
+        <div class="feat-title">Dividend Income Modeling</div>
+        <p class="feat-desc">
+          AI fetches dividend yields for every holding you own and projects annual
+          income — including DRIP reinvestment compounding. See how much passive
+          income your portfolio generates today and will generate at retirement.
+        </p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ SCREENSHOT ROWS ════════════════════════ -->
+<section class="showcase">
+  <div class="container">
+    <div class="showcase-stack">
+
+      <!-- Row 1: Monthly Update -->
+      <div class="sc-row reveal">
+        <div class="sc-text">
+          <div class="eyebrow">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><circle cx="6" cy="6" r="4"/><line x1="6" y1="1" x2="6" y2="3"/><line x1="6" y1="9" x2="6" y2="11"/></svg>
+            Monthly Update
+          </div>
+          <h3>In and out in five minutes, every time</h3>
+          <p>
+            The monthly update screen is designed for speed. Every account appears
+            with its most recent balance pre-populated. You tab through, enter
+            the numbers that changed, and you're done. Ledger handles the
+            rest — net worth, save rate, month-over-month comparison.
+          </p>
+          <ul class="check-list">
+            <li>Pre-filled balances from the previous month</li>
+            <li>Income &amp; expense entry alongside balances</li>
+            <li>Automatic save rate and metrics calculation</li>
+            <li>Edit any historical month without breaking downstream data</li>
+          </ul>
+        </div>
+        <div class="sc-img-wrap">
+          <img
+            class="sc-img"
+            src="{{ url_for('static', filename='screenshots/monthly_update.png') }}"
+            alt="Ledger monthly update screen"
+          >
+        </div>
+      </div>
+
+      <!-- Row 2: Allocation Charts (flipped) -->
+      <div class="sc-row flip reveal">
+        <div class="sc-text">
+          <div class="eyebrow">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 1 A5 5 0 0 1 11 6 L6 6 Z" fill="rgba(16,185,129,0.25)" stroke="none"/><circle cx="6" cy="6" r="5"/><line x1="6" y1="1" x2="6" y2="6"/><line x1="11" y1="6" x2="6" y2="6"/></svg>
+            Allocation Reports
+          </div>
+          <h3>Know exactly where your money is</h3>
+          <p>
+            Ledger automatically builds your asset allocation from your holdings
+            and account categories. See your actual split across equities, bonds,
+            real estate, and cash — and how far you are from your target allocation
+            for each asset class.
+          </p>
+          <ul class="check-list">
+            <li>Two-phase allocation: account-level and holding-level</li>
+            <li>Drift analysis versus your target percentages</li>
+            <li>AI-classified tickers mapped to asset classes automatically</li>
+            <li>Visual breakdown by account type and asset class</li>
+          </ul>
+        </div>
+        <div class="sc-img-wrap">
+          <img
+            class="sc-img"
+            src="{{ url_for('static', filename='screenshots/charts.png') }}"
+            alt="Ledger allocation and reports screen"
+          >
+        </div>
+      </div>
+
+      <!-- Row 3: Projections -->
+      <div class="sc-row reveal">
+        <div class="sc-text">
+          <div class="eyebrow">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 9 4 6 7 7 11 3"/><polyline points="8 3 11 3 11 6"/></svg>
+            Projections
+          </div>
+          <h3>See your retirement date in real numbers</h3>
+          <p>
+            The Path to FI calculator uses your current portfolio, monthly
+            contribution, and expected return to project your wealth forward.
+            Adjust your safe withdrawal rate, add a mortgage payoff curve, and
+            model multiple scenarios to find exactly what changes your timeline.
+          </p>
+          <ul class="check-list">
+            <li>Monte Carlo–style scenario comparison</li>
+            <li>Safe withdrawal rate and SWR-based FI number</li>
+            <li>Mortgage amortization integrated into net worth projections</li>
+            <li>Visual timeline from today to financial independence</li>
+          </ul>
+        </div>
+        <div class="sc-img-wrap">
+          <img
+            class="sc-img"
+            src="{{ url_for('static', filename='screenshots/projections.png') }}"
+            alt="Ledger Path to FI projections screen"
+          >
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ AI SPOTLIGHT ═══════════════════════════ -->
+<section class="ai-sec">
+  <div class="container">
+    <div class="ai-card reveal">
+
+      <!-- Text side -->
+      <div class="ai-card-text">
+        <div class="sec-eyebrow">Powered by Claude</div>
+        <h2>AI that does the tedious work for you</h2>
+        <p>
+          Ledger uses Claude to automatically classify every ticker in your
+          portfolio into the right asset class — US equity, international, bonds,
+          real estate, alternatives — so your allocation report is always accurate
+          without manual tagging.
+        </p>
+        <p>
+          It also fetches dividend yields and models your projected annual income,
+          with DRIP compounding, all without leaving the app.
+        </p>
+        <div class="tag-cloud">
+          <span class="tag">Ticker Classification</span>
+          <span class="tag">Dividend Yield Lookup</span>
+          <span class="tag">Asset Class Mapping</span>
+          <span class="tag">DRIP Projections</span>
+          <span class="tag">Income Modeling</span>
+        </div>
+      </div>
+
+      <!-- SVG Illustration -->
+      <div>
+        <svg viewBox="0 0 420 300" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:480px;display:block;margin:0 auto">
+
+          <!-- Background card -->
+          <rect x="0" y="0" width="420" height="300" rx="14" fill="rgba(8,13,24,0.7)" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>
+
+          <!-- Header label -->
+          <text x="22" y="32" fill="#4a5568" font-size="10" font-family="monospace" letter-spacing="1">AI CLASSIFICATION</text>
+          <line x1="0" y1="42" x2="420" y2="42" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+
+          <!-- ── LEFT COLUMN: Ticker chips ── -->
+          <!-- VTI -->
+          <rect x="22" y="62" width="72" height="26" rx="6" fill="rgba(16,185,129,0.1)" stroke="rgba(16,185,129,0.3)" stroke-width="1"/>
+          <text x="58" y="79" text-anchor="middle" fill="#10b981" font-size="11" font-weight="600" font-family="monospace">VTI</text>
+
+          <!-- BND -->
+          <rect x="22" y="102" width="72" height="26" rx="6" fill="rgba(99,102,241,0.1)" stroke="rgba(99,102,241,0.3)" stroke-width="1"/>
+          <text x="58" y="119" text-anchor="middle" fill="#6366f1" font-size="11" font-weight="600" font-family="monospace">BND</text>
+
+          <!-- AAPL -->
+          <rect x="22" y="142" width="72" height="26" rx="6" fill="rgba(139,92,246,0.1)" stroke="rgba(139,92,246,0.3)" stroke-width="1"/>
+          <text x="58" y="159" text-anchor="middle" fill="#8b5cf6" font-size="11" font-weight="600" font-family="monospace">AAPL</text>
+
+          <!-- VNQ -->
+          <rect x="22" y="182" width="72" height="26" rx="6" fill="rgba(245,158,11,0.1)" stroke="rgba(245,158,11,0.3)" stroke-width="1"/>
+          <text x="58" y="199" text-anchor="middle" fill="#f59e0b" font-size="11" font-weight="600" font-family="monospace">VNQ</text>
+
+          <!-- VXUS -->
+          <rect x="22" y="222" width="72" height="26" rx="6" fill="rgba(236,72,153,0.1)" stroke="rgba(236,72,153,0.3)" stroke-width="1"/>
+          <text x="58" y="239" text-anchor="middle" fill="#ec4899" font-size="11" font-weight="600" font-family="monospace">VXUS</text>
+
+          <!-- ── Connection lines ── -->
+          <!-- VTI line -->
+          <path d="M 94 75 C 140 75 140 150 186 150" stroke="rgba(16,185,129,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <!-- BND line -->
+          <path d="M 94 115 C 140 115 140 150 186 150" stroke="rgba(99,102,241,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <!-- AAPL line -->
+          <path d="M 94 155 L 186 155" stroke="rgba(139,92,246,0.3)" stroke-width="1.25" stroke-dasharray="3 3"/>
+          <!-- VNQ line -->
+          <path d="M 94 195 C 140 195 140 160 186 160" stroke="rgba(245,158,11,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <!-- VXUS line -->
+          <path d="M 94 235 C 140 235 140 165 186 165" stroke="rgba(236,72,153,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+
+          <!-- ── CENTER: AI node ── -->
+          <!-- Outer glow ring -->
+          <circle cx="210" cy="154" r="44" fill="rgba(16,185,129,0.04)" stroke="rgba(16,185,129,0.12)" stroke-width="1"/>
+          <!-- Middle ring -->
+          <circle cx="210" cy="154" r="32" fill="rgba(16,185,129,0.07)" stroke="rgba(16,185,129,0.2)" stroke-width="1.25"/>
+          <!-- Inner circle -->
+          <circle cx="210" cy="154" r="22" fill="rgba(16,185,129,0.12)" stroke="rgba(16,185,129,0.35)" stroke-width="1.5"/>
+
+          <!-- Sparkle / star icon inside center -->
+          <path d="M 210 143 L 212.5 150.5 L 220 150.5 L 214 155 L 216.5 162.5 L 210 158 L 203.5 162.5 L 206 155 L 200 150.5 L 207.5 150.5 Z"
+                fill="rgba(16,185,129,0.6)" stroke="#10b981" stroke-width="0.75" stroke-linejoin="round"/>
+
+          <!-- "Claude" label below node -->
+          <text x="210" y="210" text-anchor="middle" fill="#4a5568" font-size="9" font-family="monospace" letter-spacing="0.5">CLAUDE AI</text>
+
+          <!-- ── Right output lines ── -->
+          <path d="M 234 150 C 270 150 270 84 308 84" stroke="rgba(16,185,129,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <path d="M 234 152 C 270 152 270 120 308 120" stroke="rgba(99,102,241,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <path d="M 234 154 L 308 154" stroke="rgba(139,92,246,0.3)" stroke-width="1.25" stroke-dasharray="3 3"/>
+          <path d="M 234 156 C 270 156 270 188 308 188" stroke="rgba(245,158,11,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+          <path d="M 234 158 C 270 158 270 222 308 222" stroke="rgba(236,72,153,0.25)" stroke-width="1" stroke-dasharray="3 3"/>
+
+          <!-- ── RIGHT COLUMN: Classification labels ── -->
+          <!-- US Large Cap Equity -->
+          <rect x="308" y="71" width="102" height="26" rx="6" fill="rgba(16,185,129,0.08)" stroke="rgba(16,185,129,0.2)" stroke-width="1"/>
+          <text x="359" y="88" text-anchor="middle" fill="#10b981" font-size="9.5" font-family="'Geist','Inter',sans-serif">US Large Cap Equity</text>
+
+          <!-- US Bond Market -->
+          <rect x="308" y="107" width="102" height="26" rx="6" fill="rgba(99,102,241,0.08)" stroke="rgba(99,102,241,0.2)" stroke-width="1"/>
+          <text x="359" y="124" text-anchor="middle" fill="#6366f1" font-size="9.5" font-family="'Geist','Inter',sans-serif">US Bond Market</text>
+
+          <!-- Technology / Growth -->
+          <rect x="308" y="141" width="102" height="26" rx="6" fill="rgba(139,92,246,0.08)" stroke="rgba(139,92,246,0.2)" stroke-width="1"/>
+          <text x="359" y="158" text-anchor="middle" fill="#8b5cf6" font-size="9.5" font-family="'Geist','Inter',sans-serif">Technology / Growth</text>
+
+          <!-- Real Estate (REIT) -->
+          <rect x="308" y="175" width="102" height="26" rx="6" fill="rgba(245,158,11,0.08)" stroke="rgba(245,158,11,0.2)" stroke-width="1"/>
+          <text x="359" y="192" text-anchor="middle" fill="#f59e0b" font-size="9.5" font-family="'Geist','Inter',sans-serif">Real Estate (REIT)</text>
+
+          <!-- Intl Developed Eq. -->
+          <rect x="308" y="209" width="102" height="26" rx="6" fill="rgba(236,72,153,0.08)" stroke="rgba(236,72,153,0.2)" stroke-width="1"/>
+          <text x="359" y="226" text-anchor="middle" fill="#ec4899" font-size="9.5" font-family="'Geist','Inter',sans-serif">Intl Developed Eq.</text>
+
+          <!-- Bottom label -->
+          <text x="210" y="278" text-anchor="middle" fill="#4a5568" font-size="9.5" font-family="'Geist','Inter',sans-serif">
+            Automatic. Accurate. No manual tagging.
+          </text>
+        </svg>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════ CALL TO ACTION ═══════════════════════ -->
+<section class="cta-sec">
+  <div class="container">
+    <div class="cta-box reveal">
+
+      <h2 class="cta-h2">Ready to take control?</h2>
+      <p class="cta-p">
+        Ledger is already running. Log in to your dashboard, set up your accounts,
+        and enter your first month's data in the next ten minutes.
+      </p>
+
+      <div class="cta-btns">
+        <a href="{{ url_for('main.index') }}" class="btn-primary">
+          Go to Dashboard
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 7 11 7"/><polyline points="7 3 11 7 7 11"/>
+          </svg>
+        </a>
+        <a href="{{ url_for('main.onboarding') }}" class="btn-outline">
+          Quick setup guide
+        </a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════ FOOTER ════════════════════════════ -->
+<footer class="mktg-footer">
+  <span class="footer-brand">Ledger</span>
+  <span class="footer-sep">·</span>
+  <span>Personal finance, self-hosted</span>
+  <span class="footer-sep">·</span>
+  <a href="{{ url_for('main.index') }}" style="color:inherit;text-decoration:none">Open Dashboard</a>
+</footer>
+
+<script>
+  // Scroll-reveal: toggle .visible when elements enter the viewport
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) {
+      els.forEach(function (el) { el.classList.add('visible'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          io.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+
+</body>
+</html>

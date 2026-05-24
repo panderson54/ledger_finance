@@ -25,6 +25,11 @@ from sqlalchemy import func
 logger = logging.getLogger(__name__)
 
 
+@main_bp.route('/marketing')
+def marketing():
+    return render_template('marketing.html')
+
+
 @main_bp.route('/')
 def index():
     """Main dashboard view"""
