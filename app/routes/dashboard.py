@@ -25,7 +25,7 @@ from sqlalchemy import func
 logger = logging.getLogger(__name__)
 
 
-@main_bp.route('/marketing')
+@main_bp.route('/ledger')
 def marketing():
     return render_template('marketing.html')
 
