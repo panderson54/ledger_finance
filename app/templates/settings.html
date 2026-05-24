@@ -366,15 +366,22 @@ async function loadCache() {
     }
 }
 
-async function reclassify(ticker) {
-    if (!confirm(`Re-classify ${ticker} via Claude API?`)) return;
-    const r = await fetch(`/api/classify/${ticker}?force=1`);
-    const d = await r.json();
-    if (d.manual_required) {
-        alert('Classification failed: ' + d.error);
-    } else {
-        loadCache();
-    }
+function reclassify(ticker) {
+    showConfirmModal(
+        'Re-classify Ticker',
+        `Re-classify ${ticker} via Claude API? This will use a small amount of API credits.`,
+        async function () {
+            const r = await fetch(`/api/classify/${ticker}?force=1`);
+            const d = await r.json();
+            if (d.manual_required) {
+                alert('Classification failed: ' + d.error);
+            } else {
+                loadCache();
+            }
+        },
+        'Re-classify',
+        'btn-warning'
+    );
 }
 
 loadCache();
@@ -472,21 +479,27 @@ function editRecurring(id) {
     new bootstrap.Modal(document.getElementById('recurringModal')).show();
 }
 
-async function deleteRecurring(id) {
+function deleteRecurring(id) {
     const row = recurringCache.find(r => r.id === id);
-    if (!confirm(`Delete "${row ? row.account_name : 'this entry'}"? This won't affect months already created.`)) return;
-    try {
-        const res = await fetch(`/api/recurring-entries/${id}`, { method: 'DELETE' });
-        const d = await res.json();
-        if (d.success) {
-            showRecurringAlert('Entry deleted.', 'success');
-            loadRecurring();
-        } else {
-            showRecurringAlert(d.error || 'Delete failed.', 'danger');
+    const name = row ? row.account_name : 'this entry';
+    showConfirmModal(
+        'Delete Recurring Entry',
+        `Delete "${name}"? This won't affect months already created.`,
+        async function () {
+            try {
+                const res = await fetch(`/api/recurring-entries/${id}`, { method: 'DELETE' });
+                const d = await res.json();
+                if (d.success) {
+                    showRecurringAlert('Entry deleted.', 'success');
+                    loadRecurring();
+                } else {
+                    showRecurringAlert(d.error || 'Delete failed.', 'danger');
+                }
+            } catch (e) {
+                showRecurringAlert('Network error: ' + e.message, 'danger');
+            }
         }
-    } catch (e) {
-        showRecurringAlert('Network error: ' + e.message, 'danger');
-    }
+    );
 }
 
 document.getElementById('saveRecurringBtn').addEventListener('click', async () => {
