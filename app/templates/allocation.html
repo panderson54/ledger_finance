@@ -1269,9 +1269,14 @@ function loadRental() {
 }
 
 function deleteRental(id) {
-  if (!confirm('Delete this property?')) return;
-  fetch('/api/rental-income/' + id, {method: 'DELETE'})
-    .then(() => loadRental()).catch(console.error);
+  showConfirmModal(
+      'Delete Property',
+      'Delete this rental property? This will remove it from passive income calculations.',
+      function () {
+          fetch('/api/rental-income/' + id, {method: 'DELETE'})
+              .then(() => loadRental()).catch(console.error);
+      }
+  );
 }
 
 // ── Passive-income tab: lazy-load on first visit ──────────────────────────────

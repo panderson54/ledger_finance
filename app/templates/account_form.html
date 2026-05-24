@@ -749,11 +749,17 @@ document.getElementById('categorySelect').addEventListener('change', function ()
     // ── Archive ───────────────────────────────────────────────────────────
 
     window.archiveHolding = function (id) {
-        if (!confirm('Remove this holding?')) return;
-        fetch(`/api/holdings/${id}`, {method: 'DELETE'})
-            .then(r => r.json())
-            .then(() => loadHoldings())
-            .catch(() => alert('Failed to remove holding.'));
+        showConfirmModal(
+            'Remove Holding',
+            'Remove this holding from your portfolio? Historical data is preserved.',
+            function () {
+                fetch(`/api/holdings/${id}`, {method: 'DELETE'})
+                    .then(r => r.json())
+                    .then(() => loadHoldings())
+                    .catch(() => alert('Failed to remove holding.'));
+            },
+            'Remove'
+        );
     };
 
     // ── Add holding UI ────────────────────────────────────────────────────
