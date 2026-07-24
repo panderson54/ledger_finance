@@ -10,27 +10,10 @@ from flask import jsonify, request
 
 from app.routes import main_bp
 from app.routes.helpers import (
-    _holding_to_dict, _bad_request, _not_found,
-    _get_app_setting, _get_anthropic_api_key, _validate_allocation_splits,
+    _holding_to_dict, _get_app_setting, _get_anthropic_api_key, _validate_allocation_splits,
 )
 from app.models import Account, Holding, HoldingAllocation, TickerClassification
 from app import db
-
-_ALLOWED_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-_MAX_IMAGE_BYTES = 10 * 1024 * 1024
-
-
-def _read_and_validate_image(file):
-    """Return (image_bytes, mime_type) on success, or (None, error_response) on failure."""
-    mime_type = file.content_type or ''
-    if mime_type not in _ALLOWED_IMAGE_TYPES:
-        return None, _bad_request(f'unsupported image type: {mime_type}')
-    if request.content_length is not None and request.content_length > _MAX_IMAGE_BYTES:
-        return None, _bad_request('image file exceeds 10 MB limit')
-    image_bytes = file.read()
-    if len(image_bytes) > _MAX_IMAGE_BYTES:
-        return None, _bad_request('image file exceeds 10 MB limit')
-    return image_bytes, mime_type
 
 logger = logging.getLogger(__name__)
 
@@ -347,79 +330,3 @@ def api_holdings_refresh_all(account_id):
             'ai_enabled': ai_enabled,
         },
     })
-
-
-# ---------------------------------------------------------------------------
-# Screenshot import API
-# ---------------------------------------------------------------------------
-
-@main_bp.route('/api/accounts/<int:account_id>/holdings/import-screenshot', methods=['POST'])
-def api_import_holdings_screenshot(account_id):
-    """
-    Accept a brokerage screenshot image and return extracted {ticker, shares} pairs.
-    Does not write to the database — the frontend previews and confirms each holding.
-    """
-    account = db.session.get(Account, account_id)
-    if account is None:
-        return _not_found('account')
-
-    api_key = _get_anthropic_api_key()
-    if not api_key:
-        return jsonify({'error': 'Anthropic API key not configured'}), 503
-
-    file = request.files.get('image')
-    if not file:
-        return _bad_request('image file is required')
-
-    image_bytes, mime_type = _read_and_validate_image(file)
-    if image_bytes is None:
-        return mime_type  # error response
-
-    try:
-        from app.holdings_import_service import extract_holdings_from_image
-        holdings = extract_holdings_from_image(image_bytes, mime_type, api_key)
-    except (ValueError, RuntimeError) as exc:
-        logger.warning('Screenshot holdings extraction failed: %s', exc)
-        return jsonify({'error': str(exc)}), 500
-
-    logger.info('Screenshot import: account_id=%d extracted=%d holdings', account_id, len(holdings))
-    return jsonify({'holdings': holdings})
-
-
-@main_bp.route('/api/accounts/<int:account_id>/holdings/import-ai', methods=['POST'])
-def api_import_holdings_ai(account_id):
-    """Extract holdings from an uploaded image or pasted text; returns preview data, does not persist."""
-    account = db.session.get(Account, account_id)
-    if account is None:
-        return _not_found('account')
-
-    api_key = _get_anthropic_api_key()
-    if not api_key:
-        return jsonify({'error': 'Anthropic API key not configured'}), 503
-
-    file = request.files.get('image')
-    text = request.form.get('text', '').strip()
-
-    if file:
-        image_bytes, mime_type = _read_and_validate_image(file)
-        if image_bytes is None:
-            return mime_type  # error response
-        try:
-            from app.holdings_import_service import extract_holdings_from_image
-            holdings = extract_holdings_from_image(image_bytes, mime_type, api_key)
-        except (ValueError, RuntimeError) as exc:
-            logger.warning('AI import (image) failed: %s', exc)
-            return jsonify({'error': str(exc)}), 500
-        logger.info('AI import (image): account_id=%d extracted=%d holdings', account_id, len(holdings))
-    elif text:
-        try:
-            from app.holdings_import_service import extract_holdings_from_text
-            holdings = extract_holdings_from_text(text, api_key)
-        except (ValueError, RuntimeError) as exc:
-            logger.warning('AI import (text) failed: %s', exc)
-            return jsonify({'error': str(exc)}), 500
-        logger.info('AI import (text): account_id=%d extracted=%d holdings', account_id, len(holdings))
-    else:
-        return _bad_request('provide either an image file or pasted text')
-
-    return jsonify({'holdings': holdings})

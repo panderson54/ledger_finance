@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}Import Brokerage Positions{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h1>Import Brokerage Positions</h1>
+        <p class="text-muted">Upload a Fidelity or Schwab positions export (CSV) or monthly statement (PDF) to update holdings and account balances.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">Upload File</div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="brokerageFile" class="form-label">Select CSV or PDF file</label>
+                    <input class="form-control" type="file" id="brokerageFile" accept=".csv,.pdf">
+                </div>
+                <button type="button" class="btn btn-primary" id="previewBtn">Preview</button>
+                <div id="previewError" class="alert alert-danger mt-3 d-none"></div>
+            </div>
+        </div>
+
+        <div class="card mt-3 d-none" id="previewCard">
+            <div class="card-header">Preview</div>
+            <div class="card-body" id="previewBody"></div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Where do I get this file?</div>
+            <div class="card-body">
+                <p class="small fw-semibold mb-1">Fidelity</p>
+                <p class="small text-muted">Log in at <a href="https://www.fidelity.com/" target="_blank" rel="noopener">fidelity.com</a> &rarr; Accounts &amp; Trade &rarr; Positions &rarr; select account(s) &rarr; Download &rarr; CSV. Or Statements &rarr; download a monthly PDF statement.</p>
+                <p class="small fw-semibold mb-1">Schwab</p>
+                <p class="small text-muted mb-0">Log in at <a href="https://www.schwab.com/" target="_blank" rel="noopener">schwab.com</a> &rarr; Accounts &rarr; Positions &rarr; Export &rarr; CSV. Or Statements &rarr; download a monthly PDF statement.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const fileInput   = document.getElementById('brokerageFile');
+    const previewBtn  = document.getElementById('previewBtn');
+    const errorEl     = document.getElementById('previewError');
+    const previewCard = document.getElementById('previewCard');
+    const previewBody = document.getElementById('previewBody');
+
+    let lastFile = null;
+
+    previewBtn.addEventListener('click', function () {
+        if (!fileInput.files.length) {
+            showError('Please select a file first.');
+            return;
+        }
+        lastFile = fileInput.files[0];
+        errorEl.classList.add('d-none');
+        previewBtn.disabled = true;
+        previewBtn.textContent = 'Analyzing...';
+
+        const fd = new FormData();
+        fd.append('file', lastFile);
+        fetch('/api/brokerage-import/preview', {method: 'POST', body: fd})
+            .then(r => r.json())
+            .then(renderPreview)
+            .catch(() => showError('Network error — could not process the file.'))
+            .finally(() => {
+                previewBtn.disabled = false;
+                previewBtn.textContent = 'Preview';
+            });
+    });
+
+    function showError(msg) {
+        errorEl.textContent = msg;
+        errorEl.classList.remove('d-none');
+    }
+
+    function renderPreview(data) {
+        previewCard.classList.remove('d-none');
+        if (data.errors && data.errors.length) {
+            previewBody.innerHTML = '<div class="alert alert-danger mb-0">' +
+                data.errors.map(e => '<div>' + e + '</div>').join('') + '</div>';
+            return;
+        }
+        if (!data.accounts || !data.accounts.length) {
+            previewBody.innerHTML = '<p class="text-muted mb-0">No accounts could be detected in this file.</p>';
+            return;
+        }
+
+        let html = '';
+        if (data.warnings && data.warnings.length) {
+            html += '<div class="alert alert-warning">' +
+                data.warnings.map(w => '<div>' + w + '</div>').join('') + '</div>';
+        }
+        html += `<p class="small text-muted">Institution: <strong>${data.institution}</strong>` +
+            (data.as_of_date ? ` &middot; As of: <strong>${data.as_of_date}</strong>` : '') + '</p>';
+        html += `<div class="mb-3"><label class="form-label">Month to update</label>
+            <input type="month" class="form-control" id="importMonth" style="max-width:200px" value="${data.default_month}"></div>`;
+
+        data.accounts.forEach((acct, i) => {
+            const badgeClass = acct.confidence === 'exact' ? 'bg-success'
+                : acct.confidence === 'institution_only' ? 'bg-warning text-dark' : 'bg-secondary';
+            const badgeText = acct.confidence === 'exact' ? 'Auto-matched'
+                : acct.confidence === 'institution_only' ? 'Likely match' : 'Please select';
+
+            let options = '<option value="">Skip this account</option>';
+            (data.investment_accounts || []).forEach(a => {
+                const sel = a.id === acct.suggested_account_id ? 'selected' : '';
+                options += `<option value="${a.id}" ${sel}>${a.name}</option>`;
+            });
+
+            html += `<div class="border rounded p-3 mb-3" data-account-key="${acct.key}">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div>
+                        <strong>${acct.account_name}</strong>
+                        <span class="text-muted small">${acct.account_number_last4 ? '&middot; ...' + acct.account_number_last4 : ''}</span>
+                        <span class="badge ${badgeClass} ms-2">${badgeText}</span>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small mb-1">Map to Ledger account</label>
+                    <select class="form-select form-select-sm acct-mapping-select" style="max-width:320px">${options}</select>
+                </div>
+                <table class="table table-sm mb-2">
+                    <thead class="table-light"><tr><th>Ticker</th><th>Description</th><th class="text-end">Quantity</th><th class="text-end">Price</th><th class="text-end">Value</th></tr></thead>
+                    <tbody>${acct.positions.map(p => `<tr><td class="fw-semibold">${p.ticker}</td><td class="small text-muted">${p.description || ''}</td>
+                        <td class="text-end">${Number(p.quantity).toLocaleString('en-US', {maximumFractionDigits: 4})}</td>
+                        <td class="text-end">${p.price != null ? '$' + Number(p.price).toFixed(2) : '—'}</td>
+                        <td class="text-end">${p.value != null ? '$' + Number(p.value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—'}</td></tr>`).join('')}</tbody>
+                </table>
+                <p class="small mb-0">Cash: $${Number(acct.cash_value).toLocaleString('en-US', {maximumFractionDigits: 2})}
+                    &middot; Total: <strong>$${Number(acct.computed_total).toLocaleString('en-US', {maximumFractionDigits: 2})}</strong>
+                    ${acct.total_discrepancy_warning ? '<span class="text-warning ms-2">&#9888; differs from statement total ($' + Number(acct.reported_total).toLocaleString('en-US', {maximumFractionDigits: 2}) + ')</span>' : ''}
+                </p>
+            </div>`;
+        });
+
+        html += '<button type="button" class="btn btn-primary" id="confirmImportBtn">Import</button>' +
+            '<div id="commitError" class="alert alert-danger mt-3 d-none"></div>' +
+            '<div id="commitResult" class="alert alert-success mt-3 d-none"></div>';
+
+        previewBody.innerHTML = html;
+        document.getElementById('confirmImportBtn').addEventListener('click', () => commitImport(data));
+    }
+
+    function commitImport(previewData) {
+        const btn = document.getElementById('confirmImportBtn');
+        const commitErrorEl = document.getElementById('commitError');
+        const commitResultEl = document.getElementById('commitResult');
+        commitErrorEl.classList.add('d-none');
+        commitResultEl.classList.add('d-none');
+
+        const mapping = {};
+        document.querySelectorAll('[data-account-key]').forEach(el => {
+            const key = el.dataset.accountKey;
+            const select = el.querySelector('.acct-mapping-select');
+            mapping[key] = select.value || null;
+        });
+        const month = document.getElementById('importMonth').value;
+
+        btn.disabled = true;
+        btn.textContent = 'Importing...';
+
+        const fd = new FormData();
+        fd.append('file', lastFile);
+        fd.append('mapping', JSON.stringify(mapping));
+        fd.append('month', month);
+
+        fetch('/api/brokerage-import/commit', {method: 'POST', body: fd})
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) {
+                    commitErrorEl.innerHTML = (data.errors || ['Unknown error']).map(e => '<div>' + e + '</div>').join('');
+                    commitErrorEl.classList.remove('d-none');
+                    return;
+                }
+                commitResultEl.innerHTML = `Imported: ${data.holdings_created} new, ${data.holdings_updated} updated, ` +
+                    `${data.holdings_archived} archived holdings across ${data.accounts_updated} account(s). ` +
+                    `<a href="/monthly-update/${data.month}">View month &rarr;</a>`;
+                commitResultEl.classList.remove('d-none');
+            })
+            .catch(() => {
+                commitErrorEl.textContent = 'Network error — please try again.';
+                commitErrorEl.classList.remove('d-none');
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Import';
+            });
+    }
+})();
+</script>
+{% endblock %}

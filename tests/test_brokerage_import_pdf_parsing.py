@@ -1,0 +1,274 @@
+"""
+Unit tests for app/brokerage_import/pdf_parsing.py.
+
+Fixtures are synthetic PDFs built with reportlab, positioned to match the
+verified real Schwab/Fidelity statement layouts documented in
+app/brokerage_import/column_map.py (section headings, column x-ranges,
+ticker-in-parens for Fidelity). Names/account numbers/dollar figures below
+are entirely fabricated — never the data from any real statement.
+"""
+import io
+
+import pytest
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+
+from app.brokerage_import.pdf_parsing import (
+    parse_positions_pdf, sniff_institution, _parse_pdf_number, _cluster_lines,
+    _reconstruct_rows, _rows_to_positions, _extract_statement_period, _find_pdf_start,
+)
+from app.brokerage_import.column_map import PDF_COLUMN_BANDS, SECTION_FINAL_MARKER
+
+
+PAGE_HEIGHT = letter[1]
+
+
+def _draw_page(c, lines, y_start=740, line_height=12):
+    """lines: list of lists of (x, text) tuples, one sub-list per visual line."""
+    y = y_start
+    for line in lines:
+        for x, text in line:
+            c.drawString(x, y, text)
+        y -= line_height
+
+
+def _build_pdf(pages: list[list[list[tuple]]]) -> bytes:
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    for page_lines in pages:
+        _draw_page(c, page_lines)
+        c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _schwab_statement_bytes():
+    page1 = [
+        [(78, 'Schwab One Account of')],
+        [(336, 'Account Number'), (408, 'Statement Period')],
+        [(336, '9999-1234'), (408, 'June 1-30, 2026')],
+        [(78, 'TEST HOLDER NAME')],
+    ]
+    page2 = [
+        [(78, 'Schwab One Account of')],
+        [(336, 'Account Number'), (408, 'Statement Period')],
+        [(336, '****-*1234'), (408, 'June 1-30, 2026')],
+        [(18, 'Positions - Summary')],
+        [(36, 'Beginning Value'), (494, 'Ending Value')],
+        [(36, '$10,000.00'), (494, '$10,500.00')],
+        [(18, 'Cash and Cash Investments')],
+        [(18, 'Type'), (82, 'Symbol'), (129, 'Description'), (295, 'Quantity'), (343, 'Price($)')],
+        [(18, 'Money Fund'), (82, 'SWVXX'), (129, 'SCHWAB MONEY FUND'),
+         (273, '500.0000'), (343, '1.0000'), (494, '500.00')],
+        [(23, 'Total Cash and Cash Investments'), (490, '$500.00')],
+        [(18, 'Positions - Mutual Funds')],
+        [(18, 'Symbol'), (68, 'Description'), (286, 'Quantity'), (368, 'Price($)')],
+        [(18, 'VTSAX'), (68, 'VANGUARD TOTAL STOCK'), (269, '10.0000'), (362, '1,000.00'), (465, '10,000.00')],
+        [(23, 'Total Mutual Funds'), (455, '$10,000.00')],
+    ]
+    return _build_pdf([page1, page2])
+
+
+def _fidelity_statement_bytes():
+    page1 = [
+        [(400, 'INVESTMENT REPORT')],
+        [(400, 'June 1, 2026 - June 30, 2026')],
+        [(31, 'FIDELITY')],
+    ]
+    page2 = [
+        [(400, 'INVESTMENT REPORT')],
+        [(28, 'Accounts Included in This Report')],
+        [(628, 'Account'), (18, 'Page')],
+        [(18, '4'), (30, 'FIDELITY ACCOUNT TEST HOLDER - INDIVIDUAL'), (628, 'X12-345678'),
+         (700, '$10,000.00'), (800, '$10,500.62')],
+    ]
+    page4 = [
+        [(628, 'Account #'), (760, 'X12-345678')],
+        [(31, 'Holdings')],
+        [(31, 'Core Account')],
+        [(226, 'Beginning'), (389, 'Price'), (460, 'Ending'), (606, 'Unrealized')],
+        [(215, 'Market'), (304, 'Quantity'), (378, 'Per'), (438, 'Market'), (696, 'EAI')],
+        [(31, 'Description'), (222, 'Jun'), (238, '1,'), (247, '2026'), (289, 'Jun'), (306, '30,'), (319, '2026')],
+        [(31, 'FIDELITY GOVERNMENT MONEY'), (244, '$0.53'), (316, '0.620'), (380, '$1.0000'),
+         (467, '$0.62'), (705, '$0.02')],
+        [(31, 'MARKET (SPAXX)'), (698, '3.230%')],
+        [(31, 'Total Core Account (0% of account'), (244, '$0.53'), (467, '$0.62'), (705, '$0.02')],
+        [(31, 'holdings)')],
+        [(31, 'Mutual Funds')],
+        [(226, 'Beginning'), (389, 'Price'), (460, 'Ending'), (606, 'Unrealized')],
+        [(215, 'Market'), (304, 'Quantity'), (378, 'Per'), (438, 'Market'), (696, 'EAI')],
+        [(31, 'Description'), (222, 'Jun'), (238, '1,'), (247, '2026'), (289, 'Jun'), (306, '30,'), (319, '2026')],
+        [(31, 'Stock Funds')],
+        [(31, 'FIDELITY TOTAL MARKET INDEX FUND'), (221, '$9,900.00'), (301, '10.000'),
+         (371, '$1,000.0000'), (444, '$10,000.00'), (690, '$20.00')],
+        [(31, '(FSKAX)'), (698, '0.940%')],
+        [(31, 'Total Stock Funds (100% of account'), (221, '$9,900.00'), (444, '$10,000.00'), (690, '$20.00')],
+        [(31, 'holdings)')],
+        [(31, 'Total Mutual Funds (100% of account'), (221, '$9,900.00'), (444, '$10,000.00'), (690, '$20.00')],
+        [(31, 'holdings)')],
+        [(31, 'Total Holdings'), (444, '$10,000.62'), (690, '$20.00')],
+    ]
+    return _build_pdf([page1, page2, page4])
+
+
+class TestParsePdfNumber:
+    def test_plain_dollar(self):
+        assert _parse_pdf_number('$1,234.56') == 1234.56
+
+    def test_negative_parens(self):
+        assert _parse_pdf_number('($19.84)') == -19.84
+
+    def test_percent(self):
+        assert _parse_pdf_number('3.29%') == pytest.approx(3.29)
+
+    def test_placeholder_text_returns_none(self):
+        assert _parse_pdf_number('not') is None
+        assert _parse_pdf_number('applicable') is None
+
+    def test_empty_returns_none(self):
+        assert _parse_pdf_number('') is None
+        assert _parse_pdf_number('--') is None
+
+
+class TestSniffInstitution:
+    def test_schwab(self):
+        assert sniff_institution('Charles Schwab statement') == 'schwab'
+
+    def test_fidelity(self):
+        assert sniff_institution('Fidelity Investments report') == 'fidelity'
+
+    def test_unknown(self):
+        assert sniff_institution('Some other broker') == 'unknown'
+
+
+class TestFindPdfStart:
+    def test_strips_leading_garbage(self):
+        raw = b'\xff\xfe%PDF-1.4\n...'
+        assert _find_pdf_start(raw) == b'%PDF-1.4\n...'
+
+    def test_no_change_when_already_valid(self):
+        raw = b'%PDF-1.4\n...'
+        assert _find_pdf_start(raw) == raw
+
+
+class TestReconstructRowsFidelity:
+    """Exercises the state machine directly with fabricated word dicts —
+    the same shape pdfplumber.extract_words() returns."""
+
+    def _words(self, tuples, top):
+        return [{'text': text, 'x0': x, 'top': top} for x, text in tuples]
+
+    def test_ticker_continuation_merges_into_open_row_not_a_new_one(self):
+        lines = [
+            self._words([(31, 'FIDELITY'), (31 + 1, 'TOTAL FUND'), (221, '9900.00'),
+                         (301, '10.000'), (371, '1000.00'), (444, '10000.00'), (690, '20.00')], top=100),
+            self._words([(31, '(FSKAX)'), (698, '0.940%')], top=110),
+            self._words([(31, 'Total Stock Funds'), (444, '10000.00')], top=120),
+        ]
+        bands = PDF_COLUMN_BANDS['fidelity']['mutual_funds']
+        rows = _reconstruct_rows(lines, bands, 'total stock funds', [], has_symbol_band=False)
+        assert len(rows) == 1
+        assert rows[0].ticker_from_desc == 'FSKAX'
+        assert rows[0].numeric['quantity'] == 10.0
+
+    def test_stops_at_final_marker_ignores_trailing_content(self):
+        lines = [
+            self._words([(31, 'FUND A'), (301, '10.000'), (371, '100.00'), (444, '1000.00')], top=100),
+            self._words([(31, 'Total Mutual Funds'), (444, '1000.00')], top=110),
+            self._words([(31, 'UNRELATED TRAILING TABLE'), (301, '99.000'), (371, '5.00'), (444, '495.00')], top=120),
+        ]
+        bands = PDF_COLUMN_BANDS['fidelity']['mutual_funds']
+        rows = _reconstruct_rows(lines, bands, 'total mutual funds', ['total stock funds', 'total bond funds'],
+                                  has_symbol_band=False)
+        assert len(rows) == 1  # trailing table never reached
+
+    def test_subsection_heading_lines_skipped_not_captured_as_description(self):
+        lines = [
+            self._words([(31, 'Stock Funds')], top=90),
+            self._words([(31, 'FUND A'), (301, '10.000'), (371, '100.00'), (444, '1000.00')], top=100),
+            self._words([(31, 'Total Stock Funds'), (444, '1000.00')], top=110),
+        ]
+        bands = PDF_COLUMN_BANDS['fidelity']['mutual_funds']
+        rows = _reconstruct_rows(lines, bands, 'total mutual funds', ['total stock funds'],
+                                  has_symbol_band=False, skip_headings=['Stock Funds'])
+        assert len(rows) == 1
+        assert 'Stock Funds' not in ' '.join(rows[0].description_words)
+
+    def test_header_row_with_date_fragments_not_misparsed_as_data(self):
+        # "Jun 30," at x=306 falls inside the quantity band and would look
+        # like a quantity if the header-row guard didn't skip it.
+        header = self._words([(31, 'Description'), (289, 'Jun'), (306, '30,'), (319, '2026')], top=80)
+        data = self._words([(31, 'FUND A'), (301, '10.000'), (371, '100.00'), (444, '1000.00')], top=100)
+        total = self._words([(31, 'Total Mutual Funds'), (444, '1000.00')], top=110)
+        bands = PDF_COLUMN_BANDS['fidelity']['mutual_funds']
+        rows = _reconstruct_rows([header, data, total], bands, 'total mutual funds', [], has_symbol_band=False)
+        assert len(rows) == 1
+        assert rows[0].numeric['quantity'] == 10.0
+
+
+class TestRowsToPositions:
+    def test_bank_sweep_style_row_without_ticker_becomes_cash(self):
+        from app.brokerage_import.pdf_parsing import _OpenRow
+        row = _OpenRow()
+        row.numeric['value'] = 1.74
+        positions = _rows_to_positions([row])
+        assert len(positions) == 1
+        assert positions[0].ticker == 'CASH'
+        assert positions[0].is_cash is True
+
+
+class TestExtractStatementPeriod:
+    def test_parses_month_range(self):
+        d = _extract_statement_period('Statement Period June 1-30, 2026')
+        assert d.year == 2026 and d.month == 6 and d.day == 30
+
+    def test_no_match_returns_none(self):
+        assert _extract_statement_period('no dates here') is None
+
+
+class TestParsePositionsPdfEndToEnd:
+    def test_success_schwab(self):
+        result = parse_positions_pdf(_schwab_statement_bytes())
+        assert result.institution == 'schwab'
+        assert not result.errors
+        assert len(result.accounts) == 1
+        account = result.accounts[0]
+        assert account.account_number_last4 == '1234'
+        tickers = {p.ticker for p in account.positions}
+        assert tickers == {'VTSAX'}
+        assert account.cash_total == pytest.approx(500.0)
+        assert account.reported_total == pytest.approx(10500.0)
+
+    def test_success_fidelity(self):
+        result = parse_positions_pdf(_fidelity_statement_bytes())
+        assert result.institution == 'fidelity'
+        assert not result.errors
+        assert len(result.accounts) == 1
+        account = result.accounts[0]
+        assert account.account_number_last4 == '5678'
+        tickers = {p.ticker for p in account.positions}
+        assert tickers == {'FSKAX'}
+        assert account.cash_total == pytest.approx(0.62)
+        assert account.reported_total == pytest.approx(10000.62)
+
+    def test_empty_no_recognized_sections(self):
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf, pagesize=letter)
+        c.drawString(100, 700, 'Fidelity statement with no recognizable tables')
+        c.showPage()
+        c.save()
+        result = parse_positions_pdf(buf.getvalue())
+        assert result.institution == 'fidelity'
+        assert not any(a.positions for a in result.accounts)
+
+    def test_invalid_bytes_no_exception(self):
+        result = parse_positions_pdf(b'not a real pdf at all')
+        assert result.errors
+        assert result.accounts == []
+
+    def test_garbage_prefix_before_pdf_header_still_parses(self):
+        raw = _schwab_statement_bytes()
+        prefixed = b'\x00\x01\x02' + raw
+        result = parse_positions_pdf(prefixed)
+        assert result.institution == 'schwab'
+        assert not result.errors
