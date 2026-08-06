@@ -147,3 +147,25 @@ class TestSuggestMatches:
         results = suggest_matches(parsed, ledger)
         assert results[0]['confidence'] == 'none'
         assert len(results[0]['candidate_accounts']) == 2
+
+    def test_schwab_bank_matches_schwab_ledger_account(self):
+        # schwab_bank parsed accounts should find ledger accounts tagged 'schwab'
+        parsed = [ParsedAccount(
+            key='schwab_bank:Schwab Bank Investor Checking:2648',
+            institution='schwab_bank', account_name='Schwab Bank Investor Checking',
+            account_number_last4='2648',
+        )]
+        ledger = [{'id': 5, 'name': 'Schwab Checking', 'institution': 'schwab', 'account_number': '2648'}]
+        results = suggest_matches(parsed, ledger)
+        assert results[0]['confidence'] == 'exact'
+        assert results[0]['suggested_account_id'] == 5
+
+    def test_schwab_bank_institution_only_when_no_number_match(self):
+        parsed = [ParsedAccount(
+            key='schwab_bank:Schwab Bank Investor Checking:9999',
+            institution='schwab_bank', account_name='Schwab Bank Investor Checking',
+            account_number_last4='9999',
+        )]
+        ledger = [{'id': 5, 'name': 'Schwab Checking', 'institution': 'schwab', 'account_number': '2648'}]
+        results = suggest_matches(parsed, ledger)
+        assert results[0]['confidence'] == 'institution_only'

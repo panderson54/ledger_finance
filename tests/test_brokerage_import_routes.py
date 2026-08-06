@@ -29,9 +29,11 @@ def _upload(client, path, csv_bytes, filename='positions.csv', extra=None):
 
 
 class TestBrokerageImportPage:
-    def test_page_returns_200(self, client, db):
+    def test_page_redirects_to_import_tab(self, client, db):
         r = client.get('/brokerage-import')
-        assert r.status_code == 200
+        assert r.status_code == 302
+        assert '/import' in r.headers['Location']
+        assert 'tab=brokerage' in r.headers['Location']
 
 
 class TestPreview:

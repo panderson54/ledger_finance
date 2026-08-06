@@ -137,6 +137,13 @@ class TestSniffInstitution:
     def test_fidelity(self):
         assert sniff_institution('Fidelity Investments report') == 'fidelity'
 
+    def test_schwab_bank_wins_over_schwab(self):
+        # "Schwab Bank Investor Checking" contains "schwab" — bank marker must come first
+        assert sniff_institution('Schwab Bank Investor Checking statement') == 'schwab_bank'
+
+    def test_wealthfront(self):
+        assert sniff_institution('Wealthfront Investment Account') == 'wealthfront'
+
     def test_unknown(self):
         assert sniff_institution('Some other broker') == 'unknown'
 
@@ -272,3 +279,109 @@ class TestParsePositionsPdfEndToEnd:
         result = parse_positions_pdf(prefixed)
         assert result.institution == 'schwab'
         assert not result.errors
+
+
+def _schwab_bank_statement_bytes():
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    c.drawString(50, 750, 'Schwab Bank Investor Checking')
+    c.drawString(50, 735, 'Statement Period June 1-30, 2026')
+    c.drawString(50, 720, 'Account Number 440054642648')
+    c.drawString(50, 705, 'Ending Balance $27,607.79')
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _wealthfront_investment_bytes():
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    c.drawString(50, 750, 'Wealthfront')
+    c.drawString(50, 735, 'Individual Investment Account')
+    c.drawString(50, 720, 'Account 8W597901')
+    c.drawString(50, 705, 'Statement Period June 1-30, 2026')
+    c.drawString(50, 690, 'Total Account Value $2,451.23')
+    # position line: description ticker qty $price(4dp) $value(2dp)
+    c.drawString(50, 675, 'Vanguard ETF VTI 10.0000 $245.1234 $2,451.23')
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _wealthfront_cash_bytes():
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    c.drawString(50, 750, 'Wealthfront')
+    c.drawString(50, 735, 'Joint Cash Account')
+    c.drawString(50, 720, 'Account 8W159VG4')
+    c.drawString(50, 705, 'Statement Period June 1-30, 2026')
+    c.drawString(50, 690, 'Total Balance $142,323.00')
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+class TestParseSchwaBank:
+    def test_institution_and_balance_only(self):
+        result = parse_positions_pdf(_schwab_bank_statement_bytes())
+        assert result.institution == 'schwab_bank'
+        assert not result.errors
+        assert len(result.accounts) == 1
+        acct = result.accounts[0]
+        assert acct.balance_only is True
+        assert acct.positions == []
+        assert acct.cash_total == pytest.approx(27607.79)
+        assert acct.computed_total == pytest.approx(27607.79)
+
+    def test_account_number_last4_extracted(self):
+        result = parse_positions_pdf(_schwab_bank_statement_bytes())
+        assert result.accounts[0].account_number_last4 == '2648'
+
+    def test_statement_period_parsed(self):
+        result = parse_positions_pdf(_schwab_bank_statement_bytes())
+        assert result.as_of_date is not None
+        assert result.as_of_date.month == 6
+
+
+class TestParseWealthfrontInvestment:
+    def test_institution_and_positions(self):
+        result = parse_positions_pdf(_wealthfront_investment_bytes())
+        assert result.institution == 'wealthfront'
+        assert not result.errors
+        assert len(result.accounts) == 1
+        acct = result.accounts[0]
+        assert acct.balance_only is False
+        tickers = {p.ticker for p in acct.positions}
+        assert 'VTI' in tickers
+
+    def test_position_values_parsed(self):
+        result = parse_positions_pdf(_wealthfront_investment_bytes())
+        vti = next(p for p in result.accounts[0].positions if p.ticker == 'VTI')
+        assert vti.quantity == pytest.approx(10.0)
+        assert vti.price == pytest.approx(245.1234)
+        assert vti.value == pytest.approx(2451.23)
+
+    def test_reported_total_extracted(self):
+        result = parse_positions_pdf(_wealthfront_investment_bytes())
+        assert result.accounts[0].reported_total == pytest.approx(2451.23)
+
+    def test_account_number_last4(self):
+        result = parse_positions_pdf(_wealthfront_investment_bytes())
+        assert result.accounts[0].account_number_last4 == '7901'
+
+
+class TestParseWealthfrontCash:
+    def test_institution_and_balance_only(self):
+        result = parse_positions_pdf(_wealthfront_cash_bytes())
+        assert result.institution == 'wealthfront'
+        assert not result.errors
+        assert len(result.accounts) == 1
+        acct = result.accounts[0]
+        assert acct.balance_only is True
+        assert acct.positions == []
+        assert acct.cash_total == pytest.approx(142323.00)
+
+    def test_account_number_last4(self):
+        result = parse_positions_pdf(_wealthfront_cash_bytes())
+        # 8W159VG4[-4:] == '9VG4'
+        assert result.accounts[0].account_number_last4 == '9VG4'
