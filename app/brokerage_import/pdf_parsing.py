@@ -58,9 +58,77 @@ def _find_pdf_start(file_bytes: bytes) -> bytes:
     return file_bytes[idx:]
 
 
+def _open_pdf_pdfminer(file_bytes: bytes):
+    """
+    Thin pdfplumber-compatible wrapper using pdfminer.six for platforms where
+    pdfplumber's pypdfium2 dependency cannot be built (e.g. armv6l Raspberry Pi).
+    Provides .pages[].extract_text() and .pages[].extract_words() only.
+    """
+    from pdfminer.high_level import extract_pages
+    from pdfminer.layout import LTTextBoxHorizontal, LTTextLine, LTChar
+
+    class _Page:
+        def __init__(self, layout):
+            self._layout = layout
+            self._height = layout.height
+
+        def extract_text(self):
+            parts = []
+            for el in self._layout:
+                if isinstance(el, LTTextBoxHorizontal):
+                    parts.append(el.get_text().strip())
+            return '\n'.join(parts)
+
+        def extract_words(self):
+            words = []
+            page_height = self._height
+            for el in self._layout:
+                if not isinstance(el, LTTextBoxHorizontal):
+                    continue
+                for line in el:
+                    if not isinstance(line, LTTextLine):
+                        continue
+                    # Convert pdfminer bottom-up y to pdfplumber top-down 'top'.
+                    line_top = page_height - line.y1
+                    buf: list[str] = []
+                    word_x0: float | None = None
+                    for char in line:
+                        if isinstance(char, LTChar):
+                            ch = char.get_text()
+                            if ch.strip():
+                                if word_x0 is None:
+                                    word_x0 = char.x0
+                                buf.append(ch)
+                            else:
+                                if buf:
+                                    words.append({'text': ''.join(buf), 'x0': word_x0, 'top': line_top})
+                                    buf = []
+                                    word_x0 = None
+                    if buf:
+                        words.append({'text': ''.join(buf), 'x0': word_x0, 'top': line_top})
+            return words
+
+    class _PDF:
+        def __init__(self, pages):
+            self.pages = pages
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    pages = [_Page(layout) for layout in extract_pages(io.BytesIO(file_bytes))]
+    return _PDF(pages)
+
+
 def _open_pdf(file_bytes: bytes):
-    import pdfplumber
-    return pdfplumber.open(io.BytesIO(_find_pdf_start(file_bytes)))
+    cleaned = _find_pdf_start(file_bytes)
+    try:
+        import pdfplumber
+        return pdfplumber.open(io.BytesIO(cleaned))
+    except ImportError:
+        return _open_pdf_pdfminer(cleaned)
 
 
 def sniff_institution(text: str) -> str:
