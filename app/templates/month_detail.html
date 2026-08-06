@@ -78,6 +78,7 @@
         </div>
     </div>
     <div class="col-auto d-flex gap-2">
+        <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import</a>
         <button class="btn btn-outline-secondary" id="autoCalcBtn">Auto-Calculate Metrics</button>
         <button class="btn btn-outline-danger" onclick="deleteEntireMonth('{{ month_str }}')">Delete Month</button>
     </div>
