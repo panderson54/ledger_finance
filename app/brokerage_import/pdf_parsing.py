@@ -25,8 +25,23 @@ logger = logging.getLogger(__name__)
 _TICKER_IN_PARENS_RE = re.compile(r'\(([A-Z][A-Z0-9.]{0,9})\)')
 # Fidelity account numbers: 2-4 alnum + 5-7 digits (e.g. X83-655756, 603-977090).
 _FIDELITY_ACCOUNT_NUMBER_RE = re.compile(r'\b([A-Z0-9]{2,4}-\d{5,7})\b')
-# Schwab account numbers: 4 digits + 4 digits (e.g. 3104-6426).
+# Schwab brokerage account numbers: 4 digits + 4 digits (e.g. 3104-6426).
 _SCHWAB_ACCOUNT_NUMBER_RE = re.compile(r'\b(\d{4}-\d{4})\b')
+# Schwab Bank account numbers: 10-14 unformatted digits (e.g. 440054642648).
+_SCHWAB_BANK_ACCOUNT_NUMBER_RE = re.compile(r'\b(\d{10,14})\b')
+_SCHWAB_BANK_ENDING_BALANCE_RE = re.compile(r'Ending Balance\s+\$?([\d,]+\.\d{2})', re.IGNORECASE)
+# Wealthfront account numbers: digit + letter + 4-8 alnum (e.g. 8W597901, 8W159VG4).
+_WEALTHFRONT_ACCOUNT_NUMBER_RE = re.compile(r'\b([0-9][A-Z][A-Z0-9]{4,8})\b')
+# Wealthfront position lines: description ticker qty $price(4dp) $value(2dp).
+_WEALTHFRONT_POSITION_RE = re.compile(
+    r'^(.*?)\s+([A-Z][A-Z0-9.]{1,9})\s+([\d,]+(?:\.\d+)?)\s+\$([\d,]+\.\d{4})\s+\$([\d,]+\.\d{2})\s*$'
+)
+_WEALTHFRONT_TOTAL_RE = re.compile(
+    r'Total\s+(?:Account\s+)?Value\s*\$?([\d,]+\.\d{2})', re.IGNORECASE
+)
+_WEALTHFRONT_BALANCE_RE = re.compile(
+    r'(?:Total|Account|Ending)\s+(?:Account\s+)?(?:Balance|Value)\s*\$?([\d,]+\.\d{2})', re.IGNORECASE
+)
 _STATEMENT_PERIOD_RE = re.compile(
     r'(January|February|March|April|May|June|July|August|September|October|November|December)'
     r'\s*(\d{1,2})(?:-\d{1,2})?,?\s*(\d{4})',
@@ -465,6 +480,130 @@ def _extract_fidelity_total_holdings(lines: list[list[dict]]) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Schwab Bank
+# ---------------------------------------------------------------------------
+
+def _parse_schwab_bank_pdf(pdf) -> ParsedImport:
+    result = ParsedImport(institution='schwab_bank', source_format='pdf')
+
+    full_text = '\n'.join(page.extract_text() or '' for page in pdf.pages)
+    result.as_of_date = _extract_statement_period(full_text)
+
+    acct_m = _SCHWAB_BANK_ACCOUNT_NUMBER_RE.search(full_text)
+    account_number_full = acct_m.group(1) if acct_m else None
+    last4 = account_number_full[-4:] if account_number_full else None
+
+    bal_m = _SCHWAB_BANK_ENDING_BALANCE_RE.search(full_text)
+    balance = float(bal_m.group(1).replace(',', '')) if bal_m else 0.0
+
+    account = ParsedAccount(
+        key=_account_key('schwab_bank', 'Schwab Bank Investor Checking', last4),
+        institution='schwab_bank',
+        account_name='Schwab Bank Investor Checking',
+        account_number_last4=last4,
+        cash_total=balance,
+        computed_total=balance,
+        reported_total=balance,
+        balance_only=True,
+    )
+    result.accounts.append(account)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Wealthfront
+# ---------------------------------------------------------------------------
+
+def _parse_wealthfront_investment_pdf(pdf, full_text: str) -> ParsedImport:
+    result = ParsedImport(institution='wealthfront', source_format='pdf')
+    result.as_of_date = _extract_statement_period(full_text)
+
+    acct_m = _WEALTHFRONT_ACCOUNT_NUMBER_RE.search(full_text)
+    last4 = acct_m.group(1)[-4:] if acct_m else None
+    lower = full_text.lower()
+    if 'joint' in lower:
+        account_name = 'Wealthfront Joint Investment Account'
+    else:
+        account_name = 'Wealthfront Individual Investment Account'
+
+    account = ParsedAccount(
+        key=_account_key('wealthfront', account_name, last4),
+        institution='wealthfront', account_name=account_name,
+        account_number_last4=last4,
+    )
+
+    for line in full_text.splitlines():
+        m = _WEALTHFRONT_POSITION_RE.match(line.strip())
+        if not m:
+            continue
+        description, ticker, qty_str, price_str, value_str = m.groups()
+        ticker = ticker.upper()
+        quantity = float(qty_str.replace(',', ''))
+        price = float(price_str.replace(',', ''))
+        value = float(value_str.replace(',', ''))
+        is_cash = ticker in CASH_TICKERS or any(
+            re.search(pat, description.lower()) for pat in CASH_DESCRIPTION_PATTERNS
+        )
+        pos = ParsedPosition(
+            ticker=ticker, description=description.strip(),
+            quantity=quantity, price=price, value=value, is_cash=is_cash,
+        )
+        if is_cash:
+            account.cash_total += value
+        else:
+            account.positions.append(pos)
+
+    total_m = _WEALTHFRONT_TOTAL_RE.search(full_text)
+    if total_m:
+        account.reported_total = float(total_m.group(1).replace(',', ''))
+
+    account.computed_total = round(
+        sum((p.value or 0.0) for p in account.positions) + account.cash_total, 2
+    )
+    if not account.positions and not account.cash_total:
+        result.warnings.append('Could not find any positions in this Wealthfront statement.')
+    else:
+        result.accounts.append(account)
+    return result
+
+
+def _parse_wealthfront_cash_pdf(pdf, full_text: str) -> ParsedImport:
+    result = ParsedImport(institution='wealthfront', source_format='pdf')
+    result.as_of_date = _extract_statement_period(full_text)
+
+    acct_m = _WEALTHFRONT_ACCOUNT_NUMBER_RE.search(full_text)
+    last4 = acct_m.group(1)[-4:] if acct_m else None
+    lower = full_text.lower()
+    if 'joint' in lower:
+        account_name = 'Wealthfront Joint Cash Account'
+    else:
+        account_name = 'Wealthfront Cash Account'
+
+    bal_m = _WEALTHFRONT_TOTAL_RE.search(full_text) or _WEALTHFRONT_BALANCE_RE.search(full_text)
+    balance = float(bal_m.group(1).replace(',', '')) if bal_m else 0.0
+
+    account = ParsedAccount(
+        key=_account_key('wealthfront', account_name, last4),
+        institution='wealthfront', account_name=account_name,
+        account_number_last4=last4,
+        cash_total=balance,
+        computed_total=balance,
+        reported_total=balance,
+        balance_only=True,
+    )
+    result.accounts.append(account)
+    return result
+
+
+def _parse_wealthfront_pdf(pdf) -> ParsedImport:
+    full_text = '\n'.join(page.extract_text() or '' for page in pdf.pages)
+    lower = full_text.lower()
+    if 'investment account' in lower or 'etfs' in lower or 'etf' in lower:
+        return _parse_wealthfront_investment_pdf(pdf, full_text)
+    return _parse_wealthfront_cash_pdf(pdf, full_text)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -488,8 +627,12 @@ def parse_positions_pdf(file_bytes: bytes) -> ParsedImport:
             )
             if institution == 'schwab':
                 return _parse_schwab_pdf(pdf)
+            if institution == 'schwab_bank':
+                return _parse_schwab_bank_pdf(pdf)
             if institution == 'fidelity':
                 return _parse_fidelity_pdf(pdf)
+            if institution == 'wealthfront':
+                return _parse_wealthfront_pdf(pdf)
 
             result = ParsedImport(institution='unknown', source_format='pdf')
             result.warnings.append(

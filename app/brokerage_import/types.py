@@ -26,7 +26,8 @@ class ParsedAccount:
     positions: list[ParsedPosition] = field(default_factory=list)   # excludes is_cash rows
     cash_total: float = 0.0
     reported_total: float | None = None          # institution-printed subtotal/ending value, if present
-    computed_total: float = 0.0                    # sum(positions.value) + cash_total
+    computed_total: float = 0.0                  # sum(positions.value) + cash_total
+    balance_only: bool = False                   # True for bank/cash statements — only snapshot, no holdings
 
 
 @dataclass

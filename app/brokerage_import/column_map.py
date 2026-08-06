@@ -8,7 +8,10 @@ file that should need to change.
 # Substrings sniffed (case-insensitive) in file text to detect institution.
 INSTITUTION_MARKERS: dict[str, list[str]] = {
     'fidelity': ['fidelity'],
+    # schwab_bank must come before schwab — "Schwab Bank" text also contains "schwab"
+    'schwab_bank': ['schwab bank investor checking', 'charles schwab bank, ssb'],
     'schwab': ['schwab', 'charles schwab'],
+    'wealthfront': ['wealthfront'],
 }
 
 # --- CSV "Positions" export -------------------------------------------------
@@ -44,7 +47,7 @@ FOOTER_MARKERS: list[str] = [
 # Holding rows. SPAXX/FDRXX/FCASH/FZFXX are verified (Fidelity statement
 # sample); SWVXX/SWGXX are verified (Schwab statement sample). CASH is a
 # generic catch-all some exports use for uninvested cash rows.
-CASH_TICKERS: set[str] = {'SPAXX', 'FDRXX', 'FCASH', 'FZFXX', 'SWVXX', 'SWGXX', 'CASH'}
+CASH_TICKERS: set[str] = {'SPAXX', 'FDRXX', 'FCASH', 'FZFXX', 'SWVXX', 'SWGXX', 'CASH', 'TIMXX'}
 CASH_DESCRIPTION_PATTERNS: list[str] = [
     r'money market', r'\bsweep\b', r'cash reserves', r'government money market',
 ]

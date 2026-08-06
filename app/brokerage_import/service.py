@@ -12,7 +12,7 @@ from app.brokerage_import.parsing import parse_positions_csv
 from app.brokerage_import.pdf_parsing import parse_positions_pdf
 from app.brokerage_import.matching import suggest_matches
 from app.brokerage_import.types import ParsedImport
-from app.account_categories import INVESTMENT_CATS
+from app.account_categories import INVESTMENT_CATS, CASH_CATS
 from app.import_processor import _log_import
 
 logger = logging.getLogger(__name__)
@@ -40,8 +40,10 @@ def build_preview(db, models, file_bytes: bytes, filename: str) -> dict:
     parsed = _parse_file(file_bytes, filename)
 
     Account = models['Account']
+    has_balance_only = any(a.balance_only for a in parsed.accounts)
+    allowed_cats = INVESTMENT_CATS | CASH_CATS if has_balance_only else INVESTMENT_CATS
     investment_accounts = (
-        Account.query.filter(Account.is_active == True, Account.category.in_(INVESTMENT_CATS))
+        Account.query.filter(Account.is_active == True, Account.category.in_(allowed_cats))
         .order_by(Account.name).all()
     )
     ledger_dicts = [
@@ -120,7 +122,8 @@ def commit_import(db, models, file_bytes: bytes, filename: str, mapping: dict,
         if account_id is None:
             continue  # user chose to skip this detected account
         account = db.session.get(Account, account_id)
-        if account is None or not account.is_active or account.category not in INVESTMENT_CATS:
+        allowed = INVESTMENT_CATS | CASH_CATS if acct.balance_only else INVESTMENT_CATS
+        if account is None or not account.is_active or account.category not in allowed:
             errors.append(f'Account id {account_id} is not a valid active investment account.')
             continue
         validated.append((account, acct))
@@ -138,6 +141,19 @@ def commit_import(db, models, file_bytes: bytes, filename: str, mapping: dict,
 
     try:
         for account, parsed_account in validated:
+            if parsed_account.balance_only:
+                snapshot = AccountSnapshot.query.filter_by(
+                    account_id=account.id, snapshot_date=month_date
+                ).first()
+                if snapshot:
+                    snapshot.balance = parsed_account.computed_total
+                else:
+                    db.session.add(AccountSnapshot(
+                        account_id=account.id, snapshot_date=month_date,
+                        balance=parsed_account.computed_total,
+                    ))
+                continue
+
             existing_holdings = {
                 h.ticker.upper(): h for h in Holding.query.filter_by(account_id=account.id).all()
             }

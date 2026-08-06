@@ -7,7 +7,7 @@ Brokerage import routes:
 import json
 import logging
 
-from flask import render_template, request, jsonify
+from flask import redirect, render_template, request, jsonify, url_for
 
 from app.routes import main_bp
 from app.routes.helpers import _bad_request, _get_app_setting, _get_anthropic_api_key, _parse_month_str
@@ -34,8 +34,7 @@ def _valid_upload():
 
 @main_bp.route('/brokerage-import')
 def brokerage_import_page():
-    """Upload page for Fidelity/Schwab positions CSV exports or statement PDFs."""
-    return render_template('brokerage_import.html')
+    return redirect(url_for('main.import_data') + '?tab=brokerage')
 
 
 @main_bp.route('/api/brokerage-import/preview', methods=['POST'])

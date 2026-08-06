@@ -5,6 +5,14 @@ DB-free and unit-testable; callers convert Account rows to dicts first.
 """
 from app.brokerage_import.types import ParsedAccount
 
+_INSTITUTION_ALIASES: dict[str, str] = {
+    'schwab_bank': 'schwab',
+}
+
+
+def _canonical_institution(institution: str) -> str:
+    return _INSTITUTION_ALIASES.get(institution, institution)
+
 
 def suggest_matches(parsed_accounts: list[ParsedAccount], ledger_accounts: list[dict]) -> list[dict]:
     """
@@ -18,9 +26,10 @@ def suggest_matches(parsed_accounts: list[ParsedAccount], ledger_accounts: list[
     """
     results = []
     for parsed in parsed_accounts:
+        parsed_inst = _canonical_institution(parsed.institution)
         same_institution = [
             a for a in ledger_accounts
-            if a.get('institution') and parsed.institution in a['institution'].strip().lower()
+            if a.get('institution') and parsed_inst in a['institution'].strip().lower()
         ]
 
         exact = None

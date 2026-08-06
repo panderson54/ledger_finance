@@ -1,34 +1,90 @@
 {% extends "base.html" %}
 
-{% block title %}Import Data{% endblock %}
+{% block title %}Import{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h1>Import CSV Data</h1>
-        <p class="text-muted">Import historical financial data from a CSV file.</p>
-    </div>
+<div class="row mb-3">
+  <div class="col-12">
+    <h1>Import</h1>
+  </div>
 </div>
 
-{# ── Onboarding explainer (shown when arriving from welcome banner) ── #}
 {% if from_onboarding %}
 <div class="alert alert-info mb-4">
-    <h5 class="alert-heading">Restoring from a Ledger export?</h5>
-    <p class="mb-2">Upload the <code>ledger_*.csv</code> file exported from your previous instance. All accounts, balances, and history will be restored automatically — no manual setup needed.</p>
-    <p class="mb-2">Don't have an export? You can also use the generic import template to bring in historical data manually.</p>
-    <a href="{{ url_for('main.import_template') }}" class="btn btn-sm btn-outline-secondary">Download Generic Template</a>
+  <h5 class="alert-heading">Restoring from a Ledger export?</h5>
+  <p class="mb-2">Upload the <code>ledger_*.csv</code> file exported from your previous instance. All accounts, balances, and history will be restored automatically — no manual setup needed.</p>
+  <p class="mb-2">Don't have an export? You can also use the generic import template to bring in historical data manually.</p>
+  <a href="{{ url_for('main.import_template') }}" class="btn btn-sm btn-outline-secondary">Download Generic Template</a>
 </div>
 {% endif %}
 
-{# ── Error banner ── #}
-{% if error %}
-<div class="alert alert-danger">{{ error }}</div>
-{% endif %}
+<ul class="nav nav-tabs mb-4" id="importTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-brokerage" data-bs-toggle="tab"
+            data-bs-target="#tabBrokerage" type="button" role="tab">
+      Statement Import
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-historical" data-bs-toggle="tab"
+            data-bs-target="#tabHistorical" type="button" role="tab">
+      Historical Data
+    </button>
+  </li>
+</ul>
 
-{# ── Results panel (shown after a POST) ── #}
-{% if results %}
-<div class="row mb-4">
-    <div class="col-12">
+<div class="tab-content" id="importTabContent">
+
+  <!-- ── Statement Import tab ─────────────────────────────────────────────── -->
+  <div class="tab-pane fade show active" id="tabBrokerage" role="tabpanel">
+
+    <div class="row mb-4">
+      <div class="col-lg-7">
+        <div class="card">
+          <div class="card-header">Upload File</div>
+          <div class="card-body">
+            <div class="mb-3">
+              <label for="brokerageFile" class="form-label">Select CSV or PDF file</label>
+              <input class="form-control" type="file" id="brokerageFile" accept=".csv,.pdf">
+            </div>
+            <button type="button" class="btn btn-primary" id="brokPreviewBtn">Preview</button>
+            <div id="brokPreviewError" class="alert alert-danger mt-3 d-none"></div>
+          </div>
+        </div>
+
+        <div class="card mt-3 d-none" id="brokPreviewCard">
+          <div class="card-header">Preview</div>
+          <div class="card-body" id="brokPreviewBody"></div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card">
+          <div class="card-header">Where do I get this file?</div>
+          <div class="card-body">
+            <p class="small fw-semibold mb-1">Fidelity</p>
+            <p class="small text-muted">Log in at <a href="https://www.fidelity.com/" target="_blank" rel="noopener">fidelity.com</a> &rarr; Accounts &amp; Trade &rarr; Positions &rarr; select account(s) &rarr; Download &rarr; CSV. Or Statements &rarr; download a monthly PDF statement.</p>
+            <p class="small fw-semibold mb-1">Schwab</p>
+            <p class="small text-muted">Log in at <a href="https://www.schwab.com/" target="_blank" rel="noopener">schwab.com</a> &rarr; Accounts &rarr; Positions &rarr; Export &rarr; CSV. Or Statements &rarr; download a monthly PDF statement.</p>
+            <p class="small fw-semibold mb-1">Wealthfront</p>
+            <p class="small text-muted mb-0">Log in at <a href="https://www.wealthfront.com/" target="_blank" rel="noopener">wealthfront.com</a> &rarr; Documents &rarr; download a monthly statement PDF.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /tabBrokerage -->
+
+  <!-- ── Historical Data tab ──────────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tabHistorical" role="tabpanel">
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    {% if results %}
+    <div class="row mb-4">
+      <div class="col-12">
         {% if results.success %}
         <div class="alert alert-success"><strong>Import successful!</strong></div>
         {% else %}
@@ -36,91 +92,89 @@
         {% endif %}
 
         <div class="card">
-            <div class="card-header">Import Summary</div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col">
-                        <div class="fs-3 fw-bold text-primary">{{ results.accounts_created }}</div>
-                        <div class="text-muted small">Accounts Created</div>
-                    </div>
-                    <div class="col">
-                        <div class="fs-3 fw-bold text-success">{{ results.snapshots_imported }}</div>
-                        <div class="text-muted small">Balance Snapshots</div>
-                    </div>
-                    <div class="col">
-                        <div class="fs-3 fw-bold text-info">{{ results.spending_imported }}</div>
-                        <div class="text-muted small">Spending Entries</div>
-                    </div>
-                    <div class="col">
-                        <div class="fs-3 fw-bold text-secondary">{{ results.metrics_imported }}</div>
-                        <div class="text-muted small">Metric Records</div>
-                    </div>
-                </div>
-
-                {% if results.warnings %}
-                <hr>
-                <p class="mb-1 fw-semibold">Warnings:</p>
-                <ul class="mb-0">
-                    {% for w in results.warnings %}
-                    <li class="text-warning-emphasis">{{ w }}</li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-
-                {% if results.errors %}
-                <hr>
-                <p class="mb-1 fw-semibold">Errors:</p>
-                <ul class="mb-0">
-                    {% for e in results.errors %}
-                    <li class="text-danger">{{ e }}</li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
+          <div class="card-header">Import Summary</div>
+          <div class="card-body">
+            <div class="row text-center">
+              <div class="col">
+                <div class="fs-3 fw-bold text-primary">{{ results.accounts_created }}</div>
+                <div class="text-muted small">Accounts Created</div>
+              </div>
+              <div class="col">
+                <div class="fs-3 fw-bold text-success">{{ results.snapshots_imported }}</div>
+                <div class="text-muted small">Balance Snapshots</div>
+              </div>
+              <div class="col">
+                <div class="fs-3 fw-bold text-info">{{ results.spending_imported }}</div>
+                <div class="text-muted small">Spending Entries</div>
+              </div>
+              <div class="col">
+                <div class="fs-3 fw-bold text-secondary">{{ results.metrics_imported }}</div>
+                <div class="text-muted small">Metric Records</div>
+              </div>
             </div>
+
+            {% if results.warnings %}
+            <hr>
+            <p class="mb-1 fw-semibold">Warnings:</p>
+            <ul class="mb-0">
+              {% for w in results.warnings %}
+              <li class="text-warning-emphasis">{{ w }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+
+            {% if results.errors %}
+            <hr>
+            <p class="mb-1 fw-semibold">Errors:</p>
+            <ul class="mb-0">
+              {% for e in results.errors %}
+              <li class="text-danger">{{ e }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+          </div>
         </div>
+      </div>
     </div>
-</div>
-{% endif %}
+    {% endif %}
 
-{# ── Upload form + format guide ── #}
-<div class="row mb-4">
-    <div class="col-lg-7">
+    <div class="row mb-4">
+      <div class="col-lg-7">
         <div class="card">
-            <div class="card-header">Upload CSV File</div>
-            <div class="card-body">
-                <form method="POST" enctype="multipart/form-data" id="importForm">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label for="csv_file" class="form-label">Select CSV file</label>
-                        <input class="form-control" type="file" id="csv_file"
-                               name="csv_file" accept=".csv" required>
-                    </div>
-                    <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-secondary" id="previewBtn">Preview</button>
-                        <button type="submit" class="btn btn-primary" id="importBtn">Import</button>
-                    </div>
-                </form>
-            </div>
+          <div class="card-header">Upload CSV File</div>
+          <div class="card-body">
+            <form method="POST" enctype="multipart/form-data" id="importForm">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="mb-3">
+                <label for="csv_file" class="form-label">Select CSV file</label>
+                <input class="form-control" type="file" id="csv_file"
+                       name="csv_file" accept=".csv" required>
+              </div>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-secondary" id="histPreviewBtn">Preview</button>
+                <button type="submit" class="btn btn-primary" id="importBtn">Import</button>
+              </div>
+            </form>
+          </div>
         </div>
 
-        {# Preview results (shown dynamically) #}
-        <div class="card mt-3 d-none" id="previewCard">
-            <div class="card-header">Import Preview</div>
-            <div class="card-body" id="previewBody"></div>
+        <div class="card mt-3 d-none" id="histPreviewCard">
+          <div class="card-header">Import Preview</div>
+          <div class="card-body" id="histPreviewBody"></div>
         </div>
-    </div>
+      </div>
 
-    <div class="col-lg-5">
+      <div class="col-lg-5">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Expected CSV Format</span>
-                <a href="/import/template" class="btn btn-sm btn-outline-secondary">Download Template</a>
-            </div>
-            <div class="card-body">
-                <p class="small mb-2">
-                    First column: category name. Remaining columns: month headers.
-                </p>
-                <pre class="bg-light p-2 rounded small mb-2" style="font-size:0.72rem">Category,Jan '24,Feb '24,...
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Expected CSV Format</span>
+            <a href="/import/template" class="btn btn-sm btn-outline-secondary">Download Template</a>
+          </div>
+          <div class="card-body">
+            <p class="small mb-2">
+              First column: category name. Remaining columns: month headers.
+            </p>
+            <pre class="bg-light p-2 rounded small mb-2" style="font-size:0.72rem">Category,Jan '24,Feb '24,...
 Cash,"$180,000","$182,000",...
 Retirement,"$620,000","$625,000",...
 Investments,"$1,100,000","$1,110,000",...
@@ -132,125 +186,267 @@ Net Worth,"$2,100,000",...
 Net Worth Non-RE,"$1,900,000",...
 % Change,1.2%,...
 Save Rate,20%,...</pre>
-                <p class="small text-muted mb-0">
-                    <strong>Account rows:</strong> Cash, Retirement, Investments, Real Estate, Mortgage<br>
-                    <strong>Spending rows:</strong> Income, Expenses<br>
-                    <strong>Calculated (optional):</strong> Net Worth, Net Worth Non-RE, % Change, Save Rate<br>
-                    Month headers accepted: <code>Jan '24</code>, <code>Jan 2024</code>,
-                    <code>January 2024</code>, <code>2024-01</code>
-                </p>
-            </div>
+            <p class="small text-muted mb-0">
+              <strong>Account rows:</strong> Cash, Retirement, Investments, Real Estate, Mortgage<br>
+              <strong>Spending rows:</strong> Income, Expenses<br>
+              <strong>Calculated (optional):</strong> Net Worth, Net Worth Non-RE, % Change, Save Rate<br>
+              Month headers accepted: <code>Jan '24</code>, <code>Jan 2024</code>,
+              <code>January 2024</code>, <code>2024-01</code>
+            </p>
+          </div>
         </div>
+      </div>
     </div>
-</div>
 
-{# ── Import history ── #}
+  </div><!-- /tabHistorical -->
+
+</div><!-- /tab-content -->
+
 {% if recent_logs %}
-<div class="row">
-    <div class="col-12">
-        <h4>Recent Imports</h4>
-        <table class="table table-sm table-hover">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>File</th>
-                    <th>Records</th>
-                    <th>Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for log in recent_logs %}
-                <tr>
-                    <td class="text-nowrap">{{ log.import_date.strftime('%Y-%m-%d %H:%M') }}</td>
-                    <td>{{ log.file_name }}</td>
-                    <td>{{ log.records_imported }}</td>
-                    <td>
-                        {% if log.status == 'success' %}
-                        <span class="badge bg-success">success</span>
-                        {% elif log.status == 'partial' %}
-                        <span class="badge bg-warning text-dark">partial</span>
-                        {% else %}
-                        <span class="badge bg-danger">{{ log.status }}</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+<div class="row mt-4">
+  <div class="col-12">
+    <h4>Recent Imports</h4>
+    <table class="table table-sm table-hover">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>File</th>
+          <th>Records</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in recent_logs %}
+        <tr>
+          <td class="text-nowrap">{{ log.import_date.strftime('%Y-%m-%d %H:%M') }}</td>
+          <td>{{ log.file_name }}</td>
+          <td>{{ log.records_imported }}</td>
+          <td>
+            {% if log.status == 'success' %}
+            <span class="badge bg-success">success</span>
+            {% elif log.status == 'partial' %}
+            <span class="badge bg-warning text-dark">partial</span>
+            {% else %}
+            <span class="badge bg-danger">{{ log.status }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
-document.getElementById('previewBtn').addEventListener('click', function () {
-    const fileInput = document.getElementById('csv_file');
-    if (!fileInput.files.length) {
-        alert('Please select a CSV file first.');
-        return;
-    }
-    const btn = this;
-    btn.disabled = true;
-    btn.textContent = 'Analyzing...';
+// ── Tab routing: activate historical tab if ?tab=historical ──────────────────
+(function () {
+  const params = new URLSearchParams(location.search);
+  if (params.get('tab') === 'historical') {
+    const trigger = document.getElementById('tab-historical');
+    if (trigger) bootstrap.Tab.getOrCreateInstance(trigger).show();
+  }
+})();
 
-    const formData = new FormData();
-    formData.append('csv_file', fileInput.files[0]);
+// ── Historical import ────────────────────────────────────────────────────────
+document.getElementById('histPreviewBtn').addEventListener('click', function () {
+  const fileInput = document.getElementById('csv_file');
+  if (!fileInput.files.length) { alert('Please select a CSV file first.'); return; }
+  const btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Analyzing...';
 
-    fetch('/api/import/preview', { method: 'POST', body: formData })
+  const fd = new FormData();
+  fd.append('csv_file', fileInput.files[0]);
+
+  fetch('/api/import/preview', { method: 'POST', body: fd })
     .then(r => r.json())
-    .then(data => {
-        renderPreview(data);
-        btn.disabled = false;
-        btn.textContent = 'Preview';
-    })
-    .catch(() => {
-        btn.disabled = false;
-        btn.textContent = 'Preview';
-        alert('Preview failed. Please try again.');
-    });
+    .then(data => { renderHistPreview(data); })
+    .catch(() => { alert('Preview failed. Please try again.'); })
+    .finally(() => { btn.disabled = false; btn.textContent = 'Preview'; });
 });
 
-function renderPreview(data) {
-    const card = document.getElementById('previewCard');
-    const body = document.getElementById('previewBody');
-    card.classList.remove('d-none');
+function renderHistPreview(data) {
+  const card = document.getElementById('histPreviewCard');
+  const body = document.getElementById('histPreviewBody');
+  card.classList.remove('d-none');
 
-    if (!data.success) {
-        body.innerHTML = '<div class="alert alert-danger mb-0">' +
-            (data.errors || ['Unknown error']).map(e => '<div>' + e + '</div>').join('') +
-            '</div>';
-        return;
-    }
+  if (!data.success) {
+    body.innerHTML = '<div class="alert alert-danger mb-0">' +
+      (data.errors || ['Unknown error']).map(e => '<div>' + e + '</div>').join('') + '</div>';
+    return;
+  }
 
-    let html = '<div class="row text-center mb-3">' +
-        stat(data.accounts_created, 'Accounts to Create', 'primary') +
-        stat(data.snapshots_imported, 'Balance Snapshots', 'success') +
-        stat(data.spending_imported, 'Spending Entries', 'info') +
-        stat(data.months.length, 'Months', 'secondary') +
-        '</div>';
+  let html = '<div class="row text-center mb-3">' +
+    histStat(data.accounts_created, 'Accounts to Create', 'primary') +
+    histStat(data.snapshots_imported, 'Balance Snapshots', 'success') +
+    histStat(data.spending_imported, 'Spending Entries', 'info') +
+    histStat(data.months.length, 'Months', 'secondary') +
+    '</div>';
 
-    if (data.accounts_to_create && data.accounts_to_create.length) {
-        html += '<p class="mb-1"><strong>New accounts:</strong> ' + data.accounts_to_create.join(', ') + '</p>';
-    }
-    if (data.accounts_existing && data.accounts_existing.length) {
-        html += '<p class="mb-1"><strong>Existing accounts (will update):</strong> ' + data.accounts_existing.join(', ') + '</p>';
-    }
-    if (data.months && data.months.length) {
-        html += '<p class="mb-1"><strong>Months affected:</strong> ' + data.months.join(', ') + '</p>';
-    }
-    if (data.warnings && data.warnings.length) {
-        html += '<hr><p class="mb-1 fw-semibold text-warning">Warnings:</p><ul class="mb-0">' +
-            data.warnings.map(w => '<li>' + w + '</li>').join('') + '</ul>';
-    }
+  if (data.accounts_to_create && data.accounts_to_create.length)
+    html += '<p class="mb-1"><strong>New accounts:</strong> ' + data.accounts_to_create.join(', ') + '</p>';
+  if (data.accounts_existing && data.accounts_existing.length)
+    html += '<p class="mb-1"><strong>Existing accounts (will update):</strong> ' + data.accounts_existing.join(', ') + '</p>';
+  if (data.months && data.months.length)
+    html += '<p class="mb-1"><strong>Months affected:</strong> ' + data.months.join(', ') + '</p>';
+  if (data.warnings && data.warnings.length)
+    html += '<hr><p class="mb-1 fw-semibold text-warning">Warnings:</p><ul class="mb-0">' +
+      data.warnings.map(w => '<li>' + w + '</li>').join('') + '</ul>';
 
-    html += '<hr><p class="text-muted small mb-0">Click <strong>Import</strong> to commit these changes.</p>';
-    body.innerHTML = html;
+  html += '<hr><p class="text-muted small mb-0">Click <strong>Import</strong> to commit these changes.</p>';
+  body.innerHTML = html;
 }
 
-function stat(value, label, color) {
-    return '<div class="col"><div class="fs-4 fw-bold text-' + color + '">' + value +
-        '</div><div class="text-muted small">' + label + '</div></div>';
+function histStat(value, label, color) {
+  return '<div class="col"><div class="fs-4 fw-bold text-' + color + '">' + value +
+    '</div><div class="text-muted small">' + label + '</div></div>';
 }
+
+// ── Brokerage import ─────────────────────────────────────────────────────────
+(function () {
+  const fileInput   = document.getElementById('brokerageFile');
+  const previewBtn  = document.getElementById('brokPreviewBtn');
+  const errorEl     = document.getElementById('brokPreviewError');
+  const previewCard = document.getElementById('brokPreviewCard');
+  const previewBody = document.getElementById('brokPreviewBody');
+
+  let lastFile = null;
+
+  previewBtn.addEventListener('click', function () {
+    if (!fileInput.files.length) { showError('Please select a file first.'); return; }
+    lastFile = fileInput.files[0];
+    errorEl.classList.add('d-none');
+    previewBtn.disabled = true;
+    previewBtn.textContent = 'Analyzing...';
+
+    const fd = new FormData();
+    fd.append('file', lastFile);
+    fetch('/api/brokerage-import/preview', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(renderPreview)
+      .catch(() => showError('Network error — could not process the file.'))
+      .finally(() => { previewBtn.disabled = false; previewBtn.textContent = 'Preview'; });
+  });
+
+  function showError(msg) {
+    errorEl.textContent = msg;
+    errorEl.classList.remove('d-none');
+  }
+
+  function renderPreview(data) {
+    previewCard.classList.remove('d-none');
+    if (data.errors && data.errors.length) {
+      previewBody.innerHTML = '<div class="alert alert-danger mb-0">' +
+        data.errors.map(e => '<div>' + e + '</div>').join('') + '</div>';
+      return;
+    }
+    if (!data.accounts || !data.accounts.length) {
+      previewBody.innerHTML = '<p class="text-muted mb-0">No accounts could be detected in this file.</p>';
+      return;
+    }
+
+    let html = '';
+    if (data.warnings && data.warnings.length)
+      html += '<div class="alert alert-warning">' +
+        data.warnings.map(w => '<div>' + w + '</div>').join('') + '</div>';
+
+    html += `<p class="small text-muted">Institution: <strong>${data.institution}</strong>` +
+      (data.as_of_date ? ` &middot; As of: <strong>${data.as_of_date}</strong>` : '') + '</p>';
+    html += `<div class="mb-3"><label class="form-label">Month to update</label>
+      <input type="month" class="form-control" id="importMonth" style="max-width:200px" value="${data.default_month}"></div>`;
+
+    data.accounts.forEach(acct => {
+      const badgeClass = acct.confidence === 'exact' ? 'bg-success'
+        : acct.confidence === 'institution_only' ? 'bg-warning text-dark' : 'bg-secondary';
+      const badgeText = acct.confidence === 'exact' ? 'Auto-matched'
+        : acct.confidence === 'institution_only' ? 'Likely match' : 'Please select';
+
+      let options = '<option value="">Skip this account</option>';
+      (data.investment_accounts || []).forEach(a => {
+        const sel = a.id === acct.suggested_account_id ? 'selected' : '';
+        options += `<option value="${a.id}" ${sel}>${a.name}</option>`;
+      });
+
+      html += `<div class="border rounded p-3 mb-3" data-account-key="${acct.key}">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div>
+            <strong>${acct.account_name}</strong>
+            <span class="text-muted small">${acct.account_number_last4 ? '&middot; ...' + acct.account_number_last4 : ''}</span>
+            <span class="badge ${badgeClass} ms-2">${badgeText}</span>
+          </div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Map to Ledger account</label>
+          <select class="form-select form-select-sm acct-mapping-select" style="max-width:320px">${options}</select>
+        </div>
+        <table class="table table-sm mb-2">
+          <thead class="table-light"><tr><th>Ticker</th><th>Description</th><th class="text-end">Quantity</th><th class="text-end">Price</th><th class="text-end">Value</th></tr></thead>
+          <tbody>${acct.positions.map(p => `<tr>
+            <td class="fw-semibold">${p.ticker}</td>
+            <td class="small text-muted">${p.description || ''}</td>
+            <td class="text-end">${Number(p.quantity).toLocaleString('en-US', {maximumFractionDigits: 4})}</td>
+            <td class="text-end">${p.price != null ? '$' + Number(p.price).toFixed(2) : '—'}</td>
+            <td class="text-end">${p.value != null ? '$' + Number(p.value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+        <p class="small mb-0">Cash: $${Number(acct.cash_value).toLocaleString('en-US', {maximumFractionDigits: 2})}
+          &middot; Total: <strong>$${Number(acct.computed_total).toLocaleString('en-US', {maximumFractionDigits: 2})}</strong>
+          ${acct.total_discrepancy_warning ? '<span class="text-warning ms-2">&#9888; differs from statement total ($' + Number(acct.reported_total).toLocaleString('en-US', {maximumFractionDigits: 2}) + ')</span>' : ''}
+        </p>
+      </div>`;
+    });
+
+    html += '<button type="button" class="btn btn-primary" id="confirmImportBtn">Import</button>' +
+      '<div id="commitError" class="alert alert-danger mt-3 d-none"></div>' +
+      '<div id="commitResult" class="alert alert-success mt-3 d-none"></div>';
+
+    previewBody.innerHTML = html;
+    document.getElementById('confirmImportBtn').addEventListener('click', () => commitImport());
+  }
+
+  function commitImport() {
+    const btn = document.getElementById('confirmImportBtn');
+    const commitErrorEl = document.getElementById('commitError');
+    const commitResultEl = document.getElementById('commitResult');
+    commitErrorEl.classList.add('d-none');
+    commitResultEl.classList.add('d-none');
+
+    const mapping = {};
+    document.querySelectorAll('[data-account-key]').forEach(el => {
+      mapping[el.dataset.accountKey] = el.querySelector('.acct-mapping-select').value || null;
+    });
+    const month = document.getElementById('importMonth').value;
+
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+
+    const fd = new FormData();
+    fd.append('file', lastFile);
+    fd.append('mapping', JSON.stringify(mapping));
+    fd.append('month', month);
+
+    fetch('/api/brokerage-import/commit', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.success) {
+          commitErrorEl.innerHTML = (data.errors || ['Unknown error']).map(e => '<div>' + e + '</div>').join('');
+          commitErrorEl.classList.remove('d-none');
+          return;
+        }
+        commitResultEl.innerHTML = `Imported: ${data.holdings_created} new, ${data.holdings_updated} updated, ` +
+          `${data.holdings_archived} archived holdings across ${data.accounts_updated} account(s). ` +
+          `<a href="/monthly-update/${data.month}">View month &rarr;</a>`;
+        commitResultEl.classList.remove('d-none');
+      })
+      .catch(() => {
+        commitErrorEl.textContent = 'Network error — please try again.';
+        commitErrorEl.classList.remove('d-none');
+      })
+      .finally(() => { btn.disabled = false; btn.textContent = 'Import'; });
+  }
+})();
 </script>
 {% endblock %}
