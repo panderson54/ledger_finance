@@ -9,8 +9,8 @@
         <p class="text-muted mb-0">View, edit, or delete data for any month</p>
     </div>
     <div class="col-auto d-flex gap-2">
+        <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import</a>
         <a href="{{ url_for('main.export_csv') }}" class="btn btn-outline-secondary">Export CSV</a>
-        <a href="{{ url_for('main.import_data') }}" class="btn btn-outline-secondary">Import CSV</a>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMonthModal">
             + Add New Month
         </button>
