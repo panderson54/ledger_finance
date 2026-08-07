@@ -1,13 +1,17 @@
 """
 Brokerage import routes:
   GET  /brokerage-import
-  POST /api/brokerage-import/preview
+  POST /api/brokerage-import/preview      → starts background parse, returns job_id
+  GET  /api/brokerage-import/preview/<id> → poll for parse result
   POST /api/brokerage-import/commit
 """
 import json
 import logging
+import threading
+import time
+import uuid
 
-from flask import redirect, render_template, request, jsonify, url_for
+from flask import current_app, redirect, render_template, request, jsonify, url_for
 
 from app.routes import main_bp
 from app.routes.helpers import _bad_request, _get_app_setting, _get_anthropic_api_key, _parse_month_str
@@ -16,6 +20,20 @@ from app import db
 from app.brokerage_import import build_preview, commit_import
 
 logger = logging.getLogger(__name__)
+
+# In-memory store for background PDF-parse jobs keyed by UUID.
+# Jobs older than 1 hour are pruned on each new request.
+_preview_jobs: dict[str, dict] = {}
+_preview_jobs_lock = threading.Lock()
+
+
+def _cleanup_old_jobs() -> None:
+    cutoff = time.monotonic() - 3600
+    with _preview_jobs_lock:
+        stale = [k for k, v in _preview_jobs.items() if v.get('created_at', 0) < cutoff]
+        for k in stale:
+            del _preview_jobs[k]
+
 
 _MODELS = {
     'Account': Account, 'Holding': Holding, 'HoldingAllocation': HoldingAllocation,
@@ -39,13 +57,54 @@ def brokerage_import_page():
 
 @main_bp.route('/api/brokerage-import/preview', methods=['POST'])
 def api_brokerage_import_preview():
-    """Parse an uploaded CSV/PDF and return a preview without writing to the DB."""
+    """Start a background parse job; returns {job_id} immediately so the client can poll."""
     file, err = _valid_upload()
     if err:
         return err
-    result = build_preview(db, _MODELS, file.read(), file.filename)
-    logger.info('Brokerage import preview requested: filename=%s', file.filename)
-    return jsonify(result)
+
+    file_bytes = file.read()
+    filename = file.filename
+    job_id = str(uuid.uuid4())
+
+    with _preview_jobs_lock:
+        _preview_jobs[job_id] = {'status': 'pending', 'created_at': time.monotonic()}
+
+    app = current_app._get_current_object()
+
+    def _run():
+        with app.app_context():
+            try:
+                result = build_preview(db, _MODELS, file_bytes, filename)
+                with _preview_jobs_lock:
+                    _preview_jobs[job_id].update({'status': 'done', 'result': result})
+            except Exception as e:
+                logger.warning('Brokerage import preview failed: filename=%s error=%s', filename, e)
+                with _preview_jobs_lock:
+                    _preview_jobs[job_id].update(
+                        {'status': 'error', 'message': f'Could not process this file: {e}'}
+                    )
+
+    threading.Thread(target=_run, daemon=True).start()
+    _cleanup_old_jobs()
+    return jsonify({'job_id': job_id, 'status': 'pending'})
+
+
+@main_bp.route('/api/brokerage-import/preview/<job_id>', methods=['GET'])
+def api_brokerage_import_preview_status(job_id):
+    """Poll endpoint for a background preview parse job."""
+    with _preview_jobs_lock:
+        job = dict(_preview_jobs.get(job_id) or {})
+
+    if not job:
+        return jsonify({'status': 'not_found'}), 404
+    if job['status'] == 'pending':
+        return jsonify({'status': 'pending'})
+    if job['status'] == 'error':
+        return jsonify({'status': 'error', 'errors': [job['message']], 'accounts': [], 'warnings': []})
+    # Done — clean up and return result.
+    with _preview_jobs_lock:
+        _preview_jobs.pop(job_id, None)
+    return jsonify({'status': 'done', 'result': job['result']})
 
 
 @main_bp.route('/api/brokerage-import/commit', methods=['POST'])
@@ -70,7 +129,11 @@ def api_brokerage_import_commit():
     ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
     api_key = _get_anthropic_api_key() if ai_enabled else ''
 
-    result = commit_import(db, _MODELS, file.read(), file.filename, mapping, month_date, ai_enabled, api_key)
+    try:
+        result = commit_import(db, _MODELS, file.read(), file.filename, mapping, month_date, ai_enabled, api_key)
+    except Exception as e:
+        logger.warning('Brokerage import commit failed: filename=%s error=%s', file.filename, e)
+        return jsonify({'success': False, 'error': f'Could not process this file: {e}', 'error_type': 'server'}), 500
 
     if not result['success']:
         status = 500 if result.get('error_type') == 'server' else 400

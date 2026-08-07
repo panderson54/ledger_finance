@@ -1,11 +1,13 @@
 """
 Route-level tests for:
   GET  /brokerage-import
-  POST /api/brokerage-import/preview
+  POST /api/brokerage-import/preview      (starts background job, returns job_id)
+  GET  /api/brokerage-import/preview/<id> (poll for result)
   POST /api/brokerage-import/commit
 """
 import io
 import json
+import time
 from unittest.mock import patch
 
 from app.models import Holding, AccountSnapshot, CalculatedMetric, ImportLog
@@ -28,6 +30,19 @@ def _upload(client, path, csv_bytes, filename='positions.csv', extra=None):
     return client.post(path, data=data, content_type='multipart/form-data')
 
 
+def _preview(client, csv_bytes, filename='positions.csv'):
+    """POST preview (gets job_id), then poll GET until the job is done."""
+    r = _upload(client, '/api/brokerage-import/preview', csv_bytes, filename)
+    assert r.status_code == 200
+    job_id = r.get_json()['job_id']
+    for _ in range(50):  # up to 5 seconds
+        status = client.get(f'/api/brokerage-import/preview/{job_id}').get_json()
+        if status['status'] != 'pending':
+            return status
+        time.sleep(0.1)
+    raise TimeoutError('Preview job did not complete in time')
+
+
 class TestBrokerageImportPage:
     def test_page_redirects_to_import_tab(self, client, db):
         r = client.get('/brokerage-import')
@@ -45,23 +60,37 @@ class TestPreview:
         r = _upload(client, '/api/brokerage-import/preview', b'hello', filename='notes.txt')
         assert r.status_code == 400
 
-    def test_valid_csv_returns_200_with_expected_shape(self, client, db):
+    def test_post_returns_job_id_immediately(self, client, db):
         r = _upload(client, '/api/brokerage-import/preview', FIDELITY_CSV)
         assert r.status_code == 200
         body = r.get_json()
+        assert 'job_id' in body
+        assert body['status'] == 'pending'
+
+    def test_poll_unknown_job_returns_404(self, client, db):
+        r = client.get('/api/brokerage-import/preview/nonexistent-id')
+        assert r.status_code == 404
+
+    def test_valid_csv_parses_to_expected_shape(self, client, db):
+        result = _preview(client, FIDELITY_CSV)
+        assert result['status'] == 'done'
+        body = result['result']
         assert body['institution'] == 'fidelity'
         assert len(body['accounts']) == 1
         assert {p['ticker'] for p in body['accounts'][0]['positions']} == {'VTI'}
 
-    def test_unparseable_file_returns_200_with_errors(self, client, db):
-        r = _upload(client, '/api/brokerage-import/preview', b'not,a,recognizable,export\nfoo,bar,baz,qux')
-        assert r.status_code == 200
-        body = r.get_json()
-        assert body['errors']
+    def test_unparseable_file_returns_errors(self, client, db):
+        result = _preview(client, b'not,a,recognizable,export\nfoo,bar,baz,qux')
+        assert result['status'] in ('done', 'error')
+        # errors may surface inside result or at top level depending on parse path
+        if result['status'] == 'done':
+            assert result['result']['errors']
+        else:
+            assert result['errors']
 
     def test_preview_does_not_write_holdings(self, client, db):
         make_investment_account(db.session, name='Fidelity Brokerage')
-        _upload(client, '/api/brokerage-import/preview', FIDELITY_CSV)
+        _preview(client, FIDELITY_CSV)
         assert Holding.query.count() == 0
 
 
