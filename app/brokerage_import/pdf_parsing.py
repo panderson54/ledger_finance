@@ -442,16 +442,29 @@ def _discover_fidelity_accounts(pdf) -> list[dict]:
         text = page.extract_text() or ''
         if 'accounts included in this report' not in text.lower():
             continue
+        pending_name_lines: list[str] = []
         for line in text.splitlines():
             m = _FIDELITY_ACCOUNT_NUMBER_RE.search(line)
             if not m:
+                stripped = line.strip()
+                # Accumulate non-numeric lines as potential account name fragments;
+                # reset on blank or value-only lines (dollar amounts, page refs).
+                if stripped and not re.match(r'^[\d\s,.$%-]+$', stripped):
+                    pending_name_lines.append(stripped)
+                else:
+                    pending_name_lines = []
                 continue
             account_number = m.group(1)
             name_part = line[:m.start()].strip()
-            # Drop a leading page-number token if present ("4 FIDELITY ACCOUNT ...").
-            name_part = re.sub(r'^\d+\s+', '', name_part)
+            # Strip a leading page-number token ("4 " or bare "11").
+            name_part = re.sub(r'^\d+\s*', '', name_part).strip()
+            # Name may appear on the preceding line when only a page number
+            # precedes the account number on this line (multi-account statements).
+            if not name_part and pending_name_lines:
+                name_part = pending_name_lines[-1]
             if name_part:
                 accounts.append({'account_number': account_number, 'account_name': name_part})
+            pending_name_lines = []
         break
     return accounts
 

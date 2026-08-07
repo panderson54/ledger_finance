@@ -314,6 +314,16 @@ function histStat(value, label, color) {
   const previewBody = document.getElementById('brokPreviewBody');
 
   let lastFile = null;
+  let _pollTimer = null;
+
+  function _stopPolling() {
+    if (_pollTimer !== null) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
+  function _resetBtn() {
+    previewBtn.disabled = false;
+    previewBtn.textContent = 'Preview';
+  }
 
   previewBtn.addEventListener('click', function () {
     if (!fileInput.files.length) { showError('Please select a file first.'); return; }
@@ -321,14 +331,33 @@ function histStat(value, label, color) {
     errorEl.classList.add('d-none');
     previewBtn.disabled = true;
     previewBtn.textContent = 'Analyzing...';
+    _stopPolling();
 
     const fd = new FormData();
     fd.append('file', lastFile);
     fetch('/api/brokerage-import/preview', { method: 'POST', body: fd })
       .then(r => r.json())
-      .then(renderPreview)
-      .catch(() => showError('Network error — could not process the file.'))
-      .finally(() => { previewBtn.disabled = false; previewBtn.textContent = 'Preview'; });
+      .then(data => {
+        if (data.errors && data.errors.length) {
+          showError(data.errors[0]); _resetBtn(); return;
+        }
+        // PDF parsing runs in background; poll until done.
+        _pollTimer = setInterval(() => {
+          fetch('/api/brokerage-import/preview/' + data.job_id)
+            .then(r => r.json())
+            .then(job => {
+              if (job.status === 'pending') return;
+              _stopPolling(); _resetBtn();
+              if (job.status === 'error') {
+                showError((job.errors && job.errors[0]) || 'Could not process this file.');
+                return;
+              }
+              renderPreview(job.result);
+            })
+            .catch(() => { _stopPolling(); _resetBtn(); showError('Network error — could not check processing status.'); });
+        }, 3000);
+      })
+      .catch(() => { _resetBtn(); showError('Network error — could not start processing.'); });
   });
 
   function showError(msg) {

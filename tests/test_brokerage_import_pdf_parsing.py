@@ -16,6 +16,7 @@ from reportlab.lib.pagesizes import letter
 from app.brokerage_import.pdf_parsing import (
     parse_positions_pdf, sniff_institution, _parse_pdf_number, _cluster_lines,
     _reconstruct_rows, _rows_to_positions, _extract_statement_period, _find_pdf_start,
+    _discover_fidelity_accounts,
 )
 from app.brokerage_import.column_map import PDF_COLUMN_BANDS, SECTION_FINAL_MARKER
 
@@ -368,6 +369,74 @@ class TestParseWealthfrontInvestment:
     def test_account_number_last4(self):
         result = parse_positions_pdf(_wealthfront_investment_bytes())
         assert result.accounts[0].account_number_last4 == '7901'
+
+
+class TestDiscoverFidelityAccounts:
+    """Unit tests for _discover_fidelity_accounts with mock PDF objects."""
+
+    class _MockPage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class _MockPDF:
+        def __init__(self, pages):
+            self.pages = pages
+
+    def _pdf(self, *page_texts):
+        return self._MockPDF([self._MockPage(t) for t in page_texts])
+
+    def test_single_account_inline_name(self):
+        # Name and account number on same line (typical single-account statement).
+        pdf = self._pdf(
+            'Accounts Included in This Report\n'
+            '4 FIDELITY ACCOUNT (INDIVIDUAL TOD) X83-655756 6000.00 6100.00\n'
+        )
+        accounts = _discover_fidelity_accounts(pdf)
+        assert len(accounts) == 1
+        assert accounts[0]['account_number'] == 'X83-655756'
+        assert 'FIDELITY' in accounts[0]['account_name']
+
+    def test_multi_account_name_on_preceding_line(self):
+        # Multi-account statement where account name is on the line BEFORE
+        # the page-number + account-number line (the real-world 16-page case).
+        pdf = self._pdf(
+            'Statement Page 1\n',
+            'Accounts Included in This Report\n'
+            'FIDELITY ACCOUNT (INDIVIDUAL TOD)\n'
+            '4 X83-655756 6000.00 6100.00\n'
+            'NH COLLEGE PORTFOLIO (529)\n'
+            '9 603-977090 6200.84 6176.24\n'
+            'UTMA CUSTODIAL FOR MINOR\n'
+            '11 Z54-190313 5033.46 5006.31\n',
+        )
+        accounts = _discover_fidelity_accounts(pdf)
+        assert len(accounts) == 3
+        assert accounts[0]['account_number'] == 'X83-655756'
+        assert 'FIDELITY' in accounts[0]['account_name']
+        assert accounts[1]['account_number'] == '603-977090'
+        assert 'NH COLLEGE' in accounts[1]['account_name']
+        assert accounts[2]['account_number'] == 'Z54-190313'
+        assert 'UTMA' in accounts[2]['account_name']
+
+    def test_no_accounts_included_page_returns_empty(self):
+        pdf = self._pdf('Just a regular page with no account table\n')
+        assert _discover_fidelity_accounts(pdf) == []
+
+    def test_page_number_only_prefix_stripped(self):
+        # Bare page number before the account number (no name on same line),
+        # with name on preceding line — should not create an account named "9".
+        pdf = self._pdf(
+            'Accounts Included in This Report\n'
+            'MY FUND ACCOUNT\n'
+            '9 603-977090 6200.84 6176.24\n',
+        )
+        accounts = _discover_fidelity_accounts(pdf)
+        assert len(accounts) == 1
+        assert accounts[0]['account_name'] != '9'
+        assert 'MY FUND' in accounts[0]['account_name']
 
 
 class TestParseWealthfrontCash:
