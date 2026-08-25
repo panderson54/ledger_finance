@@ -315,6 +315,12 @@ function histStat(value, label, color) {
 
   let lastFile = null;
   let _pollTimer = null;
+  let categoriesData = [];
+  let categoryLookup = {};
+
+  previewBody.addEventListener('change', function (e) {
+    if (e.target.classList.contains('txn-category-select')) recomputeSummary();
+  });
 
   function _stopPolling() {
     if (_pollTimer !== null) { clearInterval(_pollTimer); _pollTimer = null; }
@@ -387,6 +393,15 @@ function histStat(value, label, color) {
     html += `<div class="mb-3"><label class="form-label">Month to update</label>
       <input type="month" class="form-control" id="importMonth" style="max-width:200px" value="${data.default_month}"></div>`;
 
+    categoriesData = data.transaction_categories || [];
+    categoryLookup = {};
+    categoriesData.forEach(c => { categoryLookup[c.id] = c; });
+
+    const hasTransactions = data.accounts.some(a => a.transactions && a.transactions.length);
+    if (hasTransactions)
+      html += '<div class="card mb-3"><div class="card-header">Income &amp; Expense Summary</div>' +
+        '<div class="card-body" id="importSummary"></div></div>';
+
     data.accounts.forEach(acct => {
       const badgeClass = acct.confidence === 'exact' ? 'bg-success'
         : acct.confidence === 'institution_only' ? 'bg-warning text-dark' : 'bg-secondary';
@@ -411,7 +426,7 @@ function histStat(value, label, color) {
           <label class="form-label small mb-1">Map to Ledger account</label>
           <select class="form-select form-select-sm acct-mapping-select" style="max-width:320px">${options}</select>
         </div>
-        <table class="table table-sm mb-2">
+        ${acct.balance_only ? '' : `<table class="table table-sm mb-2">
           <thead class="table-light"><tr><th>Ticker</th><th>Description</th><th class="text-end">Quantity</th><th class="text-end">Price</th><th class="text-end">Value</th></tr></thead>
           <tbody>${acct.positions.map(p => `<tr>
             <td class="fw-semibold">${p.ticker}</td>
@@ -420,11 +435,12 @@ function histStat(value, label, color) {
             <td class="text-end">${p.price != null ? '$' + Number(p.price).toFixed(2) : '—'}</td>
             <td class="text-end">${p.value != null ? '$' + Number(p.value).toLocaleString('en-US', {maximumFractionDigits: 2}) : '—'}</td>
           </tr>`).join('')}</tbody>
-        </table>
+        </table>`}
         <p class="small mb-0">Cash: $${Number(acct.cash_value).toLocaleString('en-US', {maximumFractionDigits: 2})}
           &middot; Total: <strong>$${Number(acct.computed_total).toLocaleString('en-US', {maximumFractionDigits: 2})}</strong>
           ${acct.total_discrepancy_warning ? '<span class="text-warning ms-2">&#9888; differs from statement total ($' + Number(acct.reported_total).toLocaleString('en-US', {maximumFractionDigits: 2}) + ')</span>' : ''}
         </p>
+        ${acct.transactions && acct.transactions.length ? renderTransactionsTable(acct.transactions) : ''}
       </div>`;
     });
 
@@ -434,6 +450,72 @@ function histStat(value, label, color) {
 
     previewBody.innerHTML = html;
     document.getElementById('confirmImportBtn').addEventListener('click', () => commitImport());
+    if (hasTransactions) recomputeSummary();
+  }
+
+  function categoryOptionsHtml(selectedId) {
+    const groups = { income: [], expense: [], transfer: [] };
+    categoriesData.forEach(c => { if (groups[c.kind]) groups[c.kind].push(c); });
+    const labels = { income: 'Income', expense: 'Expense', transfer: 'Transfer' };
+    let html = '<option value="">— Uncategorized —</option>';
+    ['income', 'expense', 'transfer'].forEach(kind => {
+      if (!groups[kind].length) return;
+      html += `<optgroup label="${labels[kind]}">`;
+      groups[kind].forEach(c => {
+        html += `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.title}</option>`;
+      });
+      html += '</optgroup>';
+    });
+    return html;
+  }
+
+  function confidenceBadge(confidence) {
+    if (confidence === 'matched') return '<span class="badge bg-info text-dark ms-1">Transfer match</span>';
+    if (confidence === 'high' || confidence === 'medium') return '<span class="text-muted small ms-1">AI suggested</span>';
+    if (confidence === 'low') return '<span class="text-warning small ms-1">low confidence</span>';
+    return '<span class="text-muted small ms-1">pick a category</span>';
+  }
+
+  function renderTransactionsTable(transactions) {
+    const rows = transactions.map(t => `<tr data-txn-key="${t.key}" data-amount="${t.amount}">
+      <td class="small text-nowrap">${t.date}</td>
+      <td class="small">${t.description}</td>
+      <td class="text-end small ${t.direction === 'credit' ? 'text-success' : ''}">${t.direction === 'credit' ? '+' : '−'}$${Number(t.amount).toLocaleString('en-US', {maximumFractionDigits: 2})}</td>
+      <td><select class="form-select form-select-sm txn-category-select" style="max-width:200px">${categoryOptionsHtml(t.category_id)}</select>${confidenceBadge(t.confidence)}</td>
+    </tr>`).join('');
+    return `<table class="table table-sm mt-2 mb-0">
+      <thead class="table-light"><tr><th>Date</th><th>Description</th><th class="text-end">Amount</th><th>Category</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function recomputeSummary() {
+    const summaryEl = document.getElementById('importSummary');
+    if (!summaryEl) return;
+
+    let totalIncome = 0, transferTotal = 0;
+    const expenseTotals = {};
+    document.querySelectorAll('[data-txn-key]').forEach(row => {
+      const select = row.querySelector('.txn-category-select');
+      const catId = select.value ? Number(select.value) : null;
+      const category = catId != null ? categoryLookup[catId] : null;
+      if (!category) return;
+      const amount = Number(row.dataset.amount);
+      if (category.kind === 'income') totalIncome += amount;
+      else if (category.kind === 'transfer') transferTotal += amount;
+      else expenseTotals[category.title] = (expenseTotals[category.title] || 0) + amount;
+    });
+
+    const fmt = n => '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    const expenseRows = Object.entries(expenseTotals).sort((a, b) => b[1] - a[1])
+      .map(([title, amt]) => `<div class="d-flex justify-content-between small"><span>${title}</span><span>${fmt(amt)}</span></div>`)
+      .join('') || '<div class="small text-muted">No expenses categorized yet</div>';
+
+    summaryEl.innerHTML = `
+      <div class="d-flex justify-content-between"><strong>Total Income</strong><strong class="text-success">${fmt(totalIncome)}</strong></div>
+      <div class="mt-2"><div class="fw-semibold small mb-1">Expenses</div>${expenseRows}</div>
+      <div class="d-flex justify-content-between mt-2 small text-muted"><span>Transfers (excluded from income/expenses)</span><span>${fmt(transferTotal)}</span></div>
+    `;
   }
 
   function commitImport() {
@@ -447,6 +529,10 @@ function histStat(value, label, color) {
     document.querySelectorAll('[data-account-key]').forEach(el => {
       mapping[el.dataset.accountKey] = el.querySelector('.acct-mapping-select').value || null;
     });
+    const transactionCategories = {};
+    document.querySelectorAll('[data-txn-key]').forEach(row => {
+      transactionCategories[row.dataset.txnKey] = row.querySelector('.txn-category-select').value || null;
+    });
     const month = document.getElementById('importMonth').value;
 
     btn.disabled = true;
@@ -455,6 +541,7 @@ function histStat(value, label, color) {
     const fd = new FormData();
     fd.append('file', lastFile);
     fd.append('mapping', JSON.stringify(mapping));
+    fd.append('transaction_categories', JSON.stringify(transactionCategories));
     fd.append('month', month);
 
     fetch('/api/brokerage-import/commit', { method: 'POST', body: fd })
@@ -465,9 +552,11 @@ function histStat(value, label, color) {
           commitErrorEl.classList.remove('d-none');
           return;
         }
-        commitResultEl.innerHTML = `Imported: ${data.holdings_created} new, ${data.holdings_updated} updated, ` +
-          `${data.holdings_archived} archived holdings across ${data.accounts_updated} account(s). ` +
-          `<a href="/monthly-update/${data.month}">View month &rarr;</a>`;
+        let summary = `Imported: ${data.holdings_created} new, ${data.holdings_updated} updated, ` +
+          `${data.holdings_archived} archived holdings across ${data.accounts_updated} account(s).`;
+        if (data.transactions_imported)
+          summary += ` ${data.transactions_imported} transaction(s) categorized.`;
+        commitResultEl.innerHTML = summary + ` <a href="/monthly-update/${data.month}">View month &rarr;</a>`;
         commitResultEl.classList.remove('d-none');
       })
       .catch(() => {

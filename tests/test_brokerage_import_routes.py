@@ -8,12 +8,16 @@ Route-level tests for:
 import io
 import json
 import time
+from datetime import date
 from unittest.mock import patch
 
-from app.models import Holding, AccountSnapshot, CalculatedMetric, ImportLog
+import pytest
+
+from app.models import Holding, AccountSnapshot, CalculatedMetric, ImportLog, Account, BankTransaction, SpendingEntry
 from app import db as _db
 
-from tests.conftest import make_investment_account, make_holding
+from tests.conftest import make_investment_account, make_holding, make_transaction_category
+from tests.test_brokerage_import_pdf_parsing import _schwab_bank_activity_bytes
 
 
 FIDELITY_CSV = (
@@ -95,11 +99,11 @@ class TestPreview:
 
 
 class TestCommit:
-    def _commit(self, client, mapping, month='2026-07', csv_bytes=FIDELITY_CSV):
-        return _upload(
-            client, '/api/brokerage-import/commit', csv_bytes,
-            extra={'mapping': json.dumps(mapping), 'month': month},
-        )
+    def _commit(self, client, mapping, month='2026-07', csv_bytes=FIDELITY_CSV, transaction_categories=None):
+        extra = {'mapping': json.dumps(mapping), 'month': month}
+        if transaction_categories is not None:
+            extra['transaction_categories'] = json.dumps(transaction_categories)
+        return _upload(client, '/api/brokerage-import/commit', csv_bytes, extra=extra)
 
     def test_missing_file_returns_400(self, client, db):
         r = client.post('/api/brokerage-import/commit', data={'month': '2026-07'})
@@ -112,6 +116,11 @@ class TestCommit:
     def test_malformed_mapping_returns_400(self, client, db):
         r = _upload(client, '/api/brokerage-import/commit', FIDELITY_CSV,
                      extra={'mapping': 'not-json', 'month': '2026-07'})
+        assert r.status_code == 400
+
+    def test_malformed_transaction_categories_returns_400(self, client, db):
+        r = _upload(client, '/api/brokerage-import/commit', FIDELITY_CSV,
+                     extra={'mapping': '{}', 'month': '2026-07', 'transaction_categories': 'not-json'})
         assert r.status_code == 400
 
     def test_mapping_references_nonexistent_account_returns_400(self, client, db):
@@ -208,3 +217,159 @@ class TestCommit:
             r = self._commit(client, {key: acct.id})
         assert r.status_code == 500
         assert Holding.query.count() == 0
+
+    def test_pure_brokerage_commit_does_not_touch_unrelated_spending_entries(self, client, db):
+        # A brokerage-only import must never run the SpendingEntry rollup —
+        # a manual entry whose account_name happens to match a
+        # TransactionCategory title (but has no BankTransaction backing it)
+        # must survive untouched.
+        make_transaction_category(db.session, title='Chase Card', kind='expense')
+        _db.session.add(SpendingEntry(
+            entry_date=date(2026, 7, 1), account_name='Chase Card', amount=123.45, entry_type='expense',
+        ))
+        _db.session.commit()
+
+        acct = make_investment_account(db.session, name='Fidelity Brokerage')
+        key = 'fidelity:Individual:5678'
+        self._commit(client, {key: acct.id})
+
+        entry = SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1), account_name='Chase Card').first()
+        assert entry is not None
+        assert float(entry.amount) == 123.45
+
+
+class TestCommitTransactions:
+    """Checking/savings statement transactions -> BankTransaction + SpendingEntry rollup."""
+
+    def _checking_account(self, name='Schwab Checking'):
+        acct = Account(name=name, account_type='asset', category='checking', is_active=True)
+        _db.session.add(acct)
+        _db.session.commit()
+        return acct
+
+    def _preview_schwab_bank(self, client):
+        result = _preview(client, _schwab_bank_activity_bytes(), filename='statement.pdf')
+        assert result['status'] == 'done'
+        return result['result']
+
+    def _commit_pdf(self, client, mapping, transaction_categories, month='2026-07'):
+        return _upload(
+            client, '/api/brokerage-import/commit', _schwab_bank_activity_bytes(), filename='statement.pdf',
+            extra={
+                'mapping': json.dumps(mapping), 'month': month,
+                'transaction_categories': json.dumps(transaction_categories),
+            },
+        )
+
+    def _categorize_by_keyword(self, transactions, payroll_id, chase_id, transfer_id, fallback_id):
+        txn_cats = {}
+        for t in transactions:
+            desc = t['description'].lower()
+            if 'payroll' in desc:
+                txn_cats[t['key']] = payroll_id
+            elif 'chase' in desc:
+                txn_cats[t['key']] = chase_id
+            elif 'wealthfront' in desc:
+                txn_cats[t['key']] = transfer_id
+            else:
+                txn_cats[t['key']] = fallback_id
+        return txn_cats
+
+    def test_preview_includes_transactions_for_balance_only_account(self, client, db):
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+        assert acct_preview['balance_only'] is True
+        assert len(acct_preview['transactions']) == 5
+
+    def test_full_success_creates_bank_transactions_and_spending_rollup(self, client, db):
+        acct = self._checking_account()
+        payroll = make_transaction_category(db.session, title='Paycheck/Salary', kind='income')
+        chase = make_transaction_category(db.session, title='Chase Card', kind='expense')
+        transfer = make_transaction_category(db.session, title='Internal Transfer', kind='transfer')
+        uncategorized = make_transaction_category(db.session, title='Uncategorized', kind='expense')
+
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+        txn_cats = self._categorize_by_keyword(
+            acct_preview['transactions'], payroll.id, chase.id, transfer.id, uncategorized.id,
+        )
+
+        r = self._commit_pdf(client, {acct_preview['key']: acct.id}, txn_cats)
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['transactions_imported'] == 5
+        assert BankTransaction.query.filter_by(account_id=acct.id).count() == 5
+
+        entries = {e.account_name: float(e.amount) for e in SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1)).all()}
+        assert entries['Paycheck/Salary'] == pytest.approx(6435.56)
+        assert entries['Chase Card'] == pytest.approx(2183.30)
+        assert 'Internal Transfer' not in entries  # transfer categories never get a SpendingEntry
+
+    def test_metrics_reflect_transaction_rollup(self, client, db):
+        acct = self._checking_account()
+        payroll = make_transaction_category(db.session, title='Paycheck/Salary', kind='income')
+        chase = make_transaction_category(db.session, title='Chase Card', kind='expense')
+        transfer = make_transaction_category(db.session, title='Internal Transfer', kind='transfer')
+        uncategorized = make_transaction_category(db.session, title='Uncategorized', kind='expense')
+
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+        txn_cats = self._categorize_by_keyword(
+            acct_preview['transactions'], payroll.id, chase.id, transfer.id, uncategorized.id,
+        )
+        self._commit_pdf(client, {acct_preview['key']: acct.id}, txn_cats)
+
+        metric = CalculatedMetric.query.filter_by(metric_date=date(2026, 7, 1)).first()
+        assert metric is not None
+        assert float(metric.total_income) == pytest.approx(6435.56)
+
+    def test_reimport_same_month_is_idempotent(self, client, db):
+        acct = self._checking_account()
+        payroll = make_transaction_category(db.session, title='Paycheck/Salary', kind='income')
+        chase = make_transaction_category(db.session, title='Chase Card', kind='expense')
+        transfer = make_transaction_category(db.session, title='Internal Transfer', kind='transfer')
+        uncategorized = make_transaction_category(db.session, title='Uncategorized', kind='expense')
+
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+        txn_cats = self._categorize_by_keyword(
+            acct_preview['transactions'], payroll.id, chase.id, transfer.id, uncategorized.id,
+        )
+
+        self._commit_pdf(client, {acct_preview['key']: acct.id}, txn_cats)
+        self._commit_pdf(client, {acct_preview['key']: acct.id}, txn_cats)
+
+        assert BankTransaction.query.filter_by(account_id=acct.id).count() == 5
+        assert SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1), account_name='Chase Card').count() == 1
+
+    def test_reclassifying_moves_spending_entry_and_removes_stale(self, client, db):
+        acct = self._checking_account()
+        uncategorized = make_transaction_category(db.session, title='Uncategorized', kind='expense')
+        chase = make_transaction_category(db.session, title='Chase Card', kind='expense')
+
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+        all_uncategorized = {t['key']: uncategorized.id for t in acct_preview['transactions']}
+        self._commit_pdf(client, {acct_preview['key']: acct.id}, all_uncategorized)
+        assert SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1), account_name='Uncategorized').first() is not None
+
+        all_chase = {t['key']: chase.id for t in acct_preview['transactions']}
+        self._commit_pdf(client, {acct_preview['key']: acct.id}, all_chase)
+
+        assert SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1), account_name='Uncategorized').first() is None
+        chase_entry = SpendingEntry.query.filter_by(entry_date=date(2026, 7, 1), account_name='Chase Card').first()
+        assert chase_entry is not None
+
+    def test_transaction_with_no_category_mapping_is_skipped_with_warning(self, client, db):
+        acct = self._checking_account()
+        make_transaction_category(db.session, title='Uncategorized', kind='expense')
+
+        preview = self._preview_schwab_bank(client)
+        acct_preview = preview['accounts'][0]
+
+        r = self._commit_pdf(client, {acct_preview['key']: acct.id}, {})  # no categories chosen at all
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body['transactions_imported'] == 0
+        assert body['warnings']
+        assert BankTransaction.query.filter_by(account_id=acct.id).count() == 0

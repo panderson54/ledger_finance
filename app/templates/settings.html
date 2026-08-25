@@ -47,6 +47,50 @@
             </div>
         </div>
 
+        <!-- Transaction Categories card -->
+        <div class="card mb-4">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Transaction Categories</span>
+                <button class="btn btn-sm btn-primary" onclick="openAddTxnCategory()">+ Add Category</button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Macro categories used to summarize checking/savings statement transactions during
+                    import — e.g. one "Utilities" line instead of four separate bill payments, or one
+                    line per credit card. The optional description is extra guidance sent to Claude when
+                    auto-suggesting a category (e.g. which bills belong under "Utilities").
+                </p>
+
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="expenseCategorizationToggle"
+                           {% if expense_categorization_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="expenseCategorizationToggle">
+                        Auto-suggest categories via Claude during statement import
+                    </label>
+                </div>
+                <button class="btn btn-primary btn-sm mb-3" id="saveExpenseCategorizationBtn" type="button">Save</button>
+
+                <div id="txn-category-alert" class="alert d-none mb-3" role="alert"></div>
+
+                <div id="txn-category-loading" class="text-muted small">Loading…</div>
+                <table class="table table-sm mb-0 d-none" id="txn-category-table">
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Kind</th>
+                            <th>Description</th>
+                            <th>Status</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="txn-category-rows"></tbody>
+                </table>
+                <div id="txn-category-empty" class="text-muted small d-none">
+                    No transaction categories yet. Click <strong>+ Add Category</strong> to get started.
+                </div>
+            </div>
+        </div>
+
         <!-- Net Worth Graph card -->
         <div class="card mb-4">
             <div class="card-header fw-semibold">Net Worth Graph</div>
@@ -250,6 +294,66 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="saveRecurringBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Transaction Category Modal -->
+<div class="modal fade" id="txnCategoryModal" tabindex="-1" aria-labelledby="txnCategoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="txnCategoryModalLabel">Add Category</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="txnCategoryId">
+                <div id="txnCategoryModalError" class="alert alert-danger d-none mb-3"></div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-medium">Kind</label>
+                    <div class="d-flex gap-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="txnCategoryKind"
+                                   id="txnKindExpense" value="expense" checked>
+                            <label class="form-check-label" for="txnKindExpense">Expense</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="txnCategoryKind"
+                                   id="txnKindIncome" value="income">
+                            <label class="form-check-label" for="txnKindIncome">Income</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="txnCategoryKind"
+                                   id="txnKindTransfer" value="transfer">
+                            <label class="form-check-label" for="txnKindTransfer">Transfer</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="txnCategoryTitle" class="form-label fw-medium">Title</label>
+                    <input type="text" class="form-control" id="txnCategoryTitle"
+                           placeholder="e.g. Utilities, Chase Card">
+                </div>
+
+                <div class="mb-3">
+                    <label for="txnCategoryDescription" class="form-label fw-medium">
+                        Description <span class="text-muted fw-normal">(optional — guidance for Claude)</span>
+                    </label>
+                    <textarea class="form-control" id="txnCategoryDescription" rows="2"
+                              placeholder="e.g. Recurring home utilities: electric, gas, internet, cell, water, garbage"></textarea>
+                </div>
+
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="txnCategoryActive" checked>
+                    <label class="form-check-label" for="txnCategoryActive">Active</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveTxnCategoryBtn">Save</button>
             </div>
         </div>
     </div>
@@ -549,6 +653,173 @@ document.getElementById('saveRecurringBtn').addEventListener('click', async () =
 });
 
 loadRecurring();
+
+// ---------------------------------------------------------------------------
+// Transaction categories
+// ---------------------------------------------------------------------------
+
+const txnCategoryAlert = document.getElementById('txn-category-alert');
+let txnCategoryCache = [];
+
+function showTxnCategoryAlert(msg, type) {
+    txnCategoryAlert.className = `alert alert-${type} mb-3`;
+    txnCategoryAlert.textContent = msg;
+    txnCategoryAlert.classList.remove('d-none');
+    setTimeout(() => txnCategoryAlert.classList.add('d-none'), 4000);
+}
+
+const TXN_KIND_BADGE = { income: 'bg-success', expense: 'bg-warning text-dark', transfer: 'bg-info text-dark' };
+
+async function loadTxnCategories() {
+    const loading = document.getElementById('txn-category-loading');
+    const table   = document.getElementById('txn-category-table');
+    const empty   = document.getElementById('txn-category-empty');
+    const tbody   = document.getElementById('txn-category-rows');
+
+    try {
+        const r = await fetch('/api/transaction-categories');
+        txnCategoryCache = await r.json();
+        loading.classList.add('d-none');
+        if (!txnCategoryCache.length) {
+            empty.classList.remove('d-none');
+            table.classList.add('d-none');
+            return;
+        }
+        empty.classList.add('d-none');
+        tbody.innerHTML = txnCategoryCache.map(row => `
+            <tr>
+                <td class="fw-medium">${escHtml(row.title)}</td>
+                <td><span class="badge ${TXN_KIND_BADGE[row.kind] || 'bg-secondary'}">${row.kind}</span></td>
+                <td class="text-muted small">${escHtml(row.description) || '—'}</td>
+                <td>
+                    <span class="badge ${row.is_active
+                        ? 'bg-success-subtle text-success border border-success-subtle'
+                        : 'bg-secondary-subtle text-secondary border'}">
+                        ${row.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                </td>
+                <td class="text-end text-nowrap">
+                    <button class="btn btn-sm btn-outline-secondary me-1"
+                            onclick="editTxnCategory(${row.id})">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger"
+                            onclick="deleteTxnCategory(${row.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+        table.classList.remove('d-none');
+    } catch {
+        loading.textContent = 'Could not load transaction categories.';
+    }
+}
+
+function openAddTxnCategory() {
+    document.getElementById('txnCategoryModalLabel').textContent = 'Add Category';
+    document.getElementById('txnCategoryId').value = '';
+    document.getElementById('txnCategoryTitle').value = '';
+    document.getElementById('txnCategoryDescription').value = '';
+    document.getElementById('txnCategoryActive').checked = true;
+    document.querySelectorAll('[name="txnCategoryKind"]').forEach(r => r.checked = r.value === 'expense');
+    document.getElementById('txnCategoryModalError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('txnCategoryModal')).show();
+}
+
+function editTxnCategory(id) {
+    const row = txnCategoryCache.find(r => r.id === id);
+    if (!row) return;
+    document.getElementById('txnCategoryModalLabel').textContent = 'Edit Category';
+    document.getElementById('txnCategoryId').value = row.id;
+    document.getElementById('txnCategoryTitle').value = row.title;
+    document.getElementById('txnCategoryDescription').value = row.description;
+    document.getElementById('txnCategoryActive').checked = row.is_active;
+    document.querySelectorAll('[name="txnCategoryKind"]').forEach(r => r.checked = r.value === row.kind);
+    document.getElementById('txnCategoryModalError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('txnCategoryModal')).show();
+}
+
+function deleteTxnCategory(id) {
+    const row = txnCategoryCache.find(r => r.id === id);
+    const name = row ? row.title : 'this category';
+    showConfirmModal(
+        'Delete Category',
+        `Delete "${name}"? Categories that already have imported transactions can't be deleted — deactivate them instead.`,
+        async function () {
+            try {
+                const res = await fetch(`/api/transaction-categories/${id}`, { method: 'DELETE' });
+                const d = await res.json();
+                if (d.success) {
+                    showTxnCategoryAlert('Category deleted.', 'success');
+                    loadTxnCategories();
+                } else {
+                    showTxnCategoryAlert(d.error || 'Delete failed.', 'danger');
+                }
+            } catch (e) {
+                showTxnCategoryAlert('Network error: ' + e.message, 'danger');
+            }
+        }
+    );
+}
+
+document.getElementById('saveTxnCategoryBtn').addEventListener('click', async () => {
+    const id          = document.getElementById('txnCategoryId').value;
+    const title       = document.getElementById('txnCategoryTitle').value.trim();
+    const description = document.getElementById('txnCategoryDescription').value.trim();
+    const kind        = document.querySelector('[name="txnCategoryKind"]:checked')?.value;
+    const active      = document.getElementById('txnCategoryActive').checked;
+    const errEl       = document.getElementById('txnCategoryModalError');
+
+    if (!title || !kind) {
+        errEl.textContent = 'Title and kind are required.';
+        errEl.classList.remove('d-none');
+        return;
+    }
+    errEl.classList.add('d-none');
+
+    const body   = { title, kind, description, is_active: active };
+    const url    = id ? `/api/transaction-categories/${id}` : '/api/transaction-categories';
+    const method = id ? 'PUT' : 'POST';
+
+    try {
+        const res = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (res.ok) {
+            bootstrap.Modal.getInstance(document.getElementById('txnCategoryModal')).hide();
+            showTxnCategoryAlert(id ? 'Category updated.' : 'Category added.', 'success');
+            loadTxnCategories();
+        } else {
+            errEl.textContent = d.error || 'Save failed.';
+            errEl.classList.remove('d-none');
+        }
+    } catch (e) {
+        errEl.textContent = 'Network error: ' + e.message;
+        errEl.classList.remove('d-none');
+    }
+});
+
+document.getElementById('saveExpenseCategorizationBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('saveExpenseCategorizationBtn');
+    const enabled = document.getElementById('expenseCategorizationToggle').checked;
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({expense_categorization_enabled: enabled}),
+        });
+        const d = await r.json();
+        if (d.success) showTxnCategoryAlert('Saved.', 'success');
+        else showTxnCategoryAlert('Save failed.', 'danger');
+    } catch (e) {
+        showTxnCategoryAlert('Network error: ' + e.message, 'danger');
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+loadTxnCategories();
 
 // ── Passive Income settings ───────────────────────────────────────────────────
 (function () {

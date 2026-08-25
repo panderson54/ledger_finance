@@ -312,6 +312,57 @@ class RentalProperty(db.Model):
         return f'<RentalProperty {self.name}>'
 
 
+class TransactionCategory(db.Model):
+    """
+    User-managed macro category for bank-statement transactions.
+    'kind' determines how a category's transactions roll up into
+    SpendingEntry: income/expense categories become one SpendingEntry per
+    month; transfer categories are excluded from both (net-neutral).
+    """
+    __tablename__ = 'transaction_categories'
+
+    id            = db.Column(db.Integer, primary_key=True)
+    title         = db.Column(db.String(100), nullable=False, unique=True)
+    description   = db.Column(db.Text)          # guidance fed to Claude for categorization
+    kind          = db.Column(db.String(20), nullable=False)   # 'income'|'expense'|'transfer'
+    is_active     = db.Column(db.Boolean, default=True, nullable=False)
+    display_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at    = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<TransactionCategory {self.title} ({self.kind})>'
+
+
+class BankTransaction(db.Model):
+    """
+    Line-item transaction parsed from a checking/savings statement.
+    Purely an audit/drill-down layer: monthly totals live in SpendingEntry,
+    grouped by category and upserted from these rows at import commit time.
+    """
+    __tablename__ = 'bank_transactions'
+
+    id               = db.Column(db.Integer, primary_key=True)
+    account_id       = db.Column(db.Integer, db.ForeignKey('accounts.id'), nullable=False)
+    transaction_date = db.Column(db.Date, nullable=False)
+    month_date       = db.Column(db.Date, nullable=False)   # first day of month, matches AccountSnapshot convention
+    description      = db.Column(db.Text, nullable=False)   # raw statement text
+    amount           = db.Column(db.Numeric(12, 2), nullable=False)  # always positive
+    direction        = db.Column(db.String(10), nullable=False)      # 'debit'|'credit'
+    category_id      = db.Column(db.Integer, db.ForeignKey('transaction_categories.id'), nullable=False)
+    created_at       = db.Column(db.DateTime, default=datetime.utcnow)
+
+    account  = db.relationship('Account', backref=db.backref('bank_transactions', lazy='dynamic'))
+    category = db.relationship('TransactionCategory', backref=db.backref('transactions', lazy='dynamic'))
+
+    __table_args__ = (
+        db.Index('ix_bank_transactions_account_month', 'account_id', 'month_date'),
+    )
+
+    def __repr__(self):
+        return f'<BankTransaction {self.transaction_date} {self.description[:30]}: ${self.amount} ({self.direction})>'
+
+
 class ImportLog(db.Model):
     """
     Tracks data imports for auditing and debugging

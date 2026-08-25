@@ -273,6 +273,21 @@ def _recurring_to_dict(r):
 
 
 # ---------------------------------------------------------------------------
+# Transaction category serialization
+# ---------------------------------------------------------------------------
+
+def _transaction_category_to_dict(c):
+    return {
+        'id':            c.id,
+        'title':         c.title,
+        'description':   c.description or '',
+        'kind':          c.kind,
+        'is_active':     c.is_active,
+        'display_order': c.display_order,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Projections context builder
 # ---------------------------------------------------------------------------
 

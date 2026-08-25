@@ -17,8 +17,9 @@ from app.brokerage_import.column_map import (
     INSTITUTION_MARKERS, PDF_SECTION_HEADINGS, PDF_COLUMN_BANDS,
     PDF_NUMERIC_FIELDS, PDF_COLLISION_FIELDS, SECTION_FINAL_MARKER, SECTION_CONTINUE_MARKERS,
     FIDELITY_SUBSECTION_HEADINGS, CASH_TICKERS, CASH_DESCRIPTION_PATTERNS,
+    PDF_TRANSACTION_COLUMN_BANDS, PDF_TRANSACTION_SECTION_HEADINGS, PDF_TRANSACTION_SECTION_STOP_MARKERS,
 )
-from app.brokerage_import.types import ParsedImport, ParsedAccount, ParsedPosition
+from app.brokerage_import.types import ParsedImport, ParsedAccount, ParsedPosition, ParsedTransaction
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,11 @@ _WEALTHFRONT_TOTAL_RE = re.compile(
 _WEALTHFRONT_BALANCE_RE = re.compile(
     r'(?:Total|Account|Ending)\s+(?:Account\s+)?(?:Balance|Value)\s*\$?([\d,]+\.\d{2})', re.IGNORECASE
 )
+_DATE_MMDD_RE = re.compile(r'^\d{2}/\d{2}$')
+# Wealthfront's Green Dot Bank companion (debit-card) account number:
+# unformatted digits with dashes, e.g. 1115-4166-6112-63.
+_GREENDOT_ACCOUNT_NUMBER_RE = re.compile(r'\b(\d{4}-\d{4}-\d{4}-\d{2})\b')
+_GREENDOT_ENDING_BALANCE_RE = re.compile(r'Ending Balance on[^$]*\$?([\d,]+\.\d{2})', re.IGNORECASE)
 _STATEMENT_PERIOD_RE = re.compile(
     r'(January|February|March|April|May|June|July|August|September|October|November|December)'
     r'\s*(\d{1,2})(?:-\d{1,2})?,?\s*(\d{4})',
@@ -561,6 +567,112 @@ def _extract_fidelity_total_holdings(lines: list[list[dict]]) -> float | None:
 
 
 # ---------------------------------------------------------------------------
+# Bank/cash statement transaction tables (checking/savings — balance_only
+# accounts). Row reconstruction is date-anchored (a new value in the 'date'
+# band starts a new row) rather than the quantity/symbol-collision engine
+# used for positions tables above, since these tables have no anchor field
+# that's always present on every row.
+# ---------------------------------------------------------------------------
+
+def _reconstruct_transaction_rows(pdf, institution: str, year: int, month: int) -> list[ParsedTransaction]:
+    """
+    Walk every page looking for the institution's transaction-table section
+    (bounded by PDF_TRANSACTION_SECTION_HEADINGS/_STOP_MARKERS) and emit one
+    ParsedTransaction per row that carries a debit or credit amount.
+    Rows with only a balance (Beginning/Ending Balance) are discarded.
+    """
+    bands = PDF_TRANSACTION_COLUMN_BANDS.get(institution)
+    heading = PDF_TRANSACTION_SECTION_HEADINGS.get(institution)
+    stop_marker = PDF_TRANSACTION_SECTION_STOP_MARKERS.get(institution)
+    if not bands or not heading:
+        return []
+
+    from datetime import date
+
+    rows: list[dict] = []
+    current: dict | None = None
+
+    def flush():
+        nonlocal current
+        if current and (current['debit'] is not None or current['credit'] is not None):
+            rows.append(current)
+        current = None
+
+    in_section = False
+    for page in pdf.pages:
+        lines = _cluster_lines(page.extract_words())
+        for line in lines:
+            line_text = ' '.join(w['text'] for w in line)
+            lowered = line_text.strip().lower()
+
+            if not in_section:
+                if lowered.startswith(heading):
+                    in_section = True
+                continue
+
+            if lowered.startswith(stop_marker):
+                flush()
+                in_section = False
+                continue
+
+            # Repeated column-header row on continuation pages.
+            if lowered.startswith('date') and 'description' in lowered:
+                continue
+            if lowered in ('posted', 'posted description debits credits balance'):
+                continue
+
+            # Repeated page letterhead/footer (copyright line, "(continued)"
+            # section headings, "Page X of Y") — flush rather than merge, so
+            # a row still open at a page break doesn't absorb this boilerplate
+            # (which would otherwise land in the description band, e.g. the
+            # account holder's running-header name) into its description.
+            if '©' in line_text or 'all rights reserved' in lowered or '(continued)' in lowered \
+                    or re.match(r'^page \d+ of \d+$', lowered):
+                flush()
+                continue
+
+            date_token = next(
+                (w['text'].strip() for w in line
+                 if _band_for_x(w['x0'], bands) == 'date' and _DATE_MMDD_RE.match(w['text'].strip())),
+                None,
+            )
+            if date_token:
+                flush()
+                current = {'date_str': date_token, 'description_words': [], 'debit': None, 'credit': None}
+
+            if current is None:
+                continue  # stray line before any row has opened
+
+            desc_text = ' '.join(w['text'] for w in line if _band_for_x(w['x0'], bands) == 'description').strip()
+            if desc_text:
+                current['description_words'].append(desc_text)
+
+            for w in line:
+                band = _band_for_x(w['x0'], bands)
+                if band not in ('debits', 'credits'):
+                    continue
+                val = _parse_pdf_number(w['text'])
+                if val is not None:
+                    current[band[:-1]] = val  # 'debits' -> 'debit', 'credits' -> 'credit'
+
+    flush()
+
+    transactions = []
+    for r in rows:
+        try:
+            m, d = r['date_str'].split('/')
+            txn_date = date(year, int(m), int(d))
+        except ValueError:
+            continue
+        description = ' '.join(r['description_words']).strip()
+        if r['debit'] is not None:
+            transactions.append(ParsedTransaction(date=txn_date, description=description, amount=r['debit'], direction='debit'))
+        elif r['credit'] is not None:
+            transactions.append(ParsedTransaction(date=txn_date, description=description, amount=r['credit'], direction='credit'))
+    return transactions
+
+
+# ---------------------------------------------------------------------------
 # Schwab Bank
 # ---------------------------------------------------------------------------
 
@@ -587,6 +699,14 @@ def _parse_schwab_bank_pdf(pdf) -> ParsedImport:
         reported_total=balance,
         balance_only=True,
     )
+    if result.as_of_date:
+        try:
+            account.transactions = _reconstruct_transaction_rows(
+                pdf, 'schwab_bank', result.as_of_date.year, result.as_of_date.month,
+            )
+        except Exception as e:
+            logger.warning('Schwab Bank PDF: transaction parsing failed: %s', e)
+            result.warnings.append('Could not extract transaction detail from this statement — only the balance was imported.')
     result.accounts.append(account)
     return result
 
@@ -648,6 +768,74 @@ def _parse_wealthfront_investment_pdf(pdf, full_text: str) -> ParsedImport:
     return result
 
 
+# Wealthfront cash-account activity lines are cleanly one-row-per-line once
+# extracted (unlike Schwab's geometric table), so this is regex/line-based
+# rather than column-band clustering: "<M/D/YYYY> <method/initiator text>
+# <-$amount|$amount>". Section headings bucket each row as credit/debit, or
+# skip entirely — "Transfer between Wealthfront and Program Banks" and the
+# daily "Balance and Interest Rate Details" table are Wealthfront's own
+# internal sweep bookkeeping, not transactions the user made.
+_WF_CASH_ROW_RE = re.compile(r'^(\d{1,2}/\d{1,2}/\d{4})\s+(.+?)\s+(-?\$[\d,]+\.\d{2})$')
+
+_WF_CASH_SECTION_KIND: dict[str, str] = {
+    'deposits/credits to wealthfront brokerage': 'credit',
+    'withdrawals/debits from wealthfront brokerage': 'debit',
+    'transfer between wealthfront and program banks': 'skip',
+    'interest': 'credit',
+    'miscellaneous credits': 'credit',
+    'balance and interest rate details': 'skip',
+    'disclosures': 'skip',
+}
+
+
+def _match_dated_row(line: str) -> tuple | None:
+    """
+    Match a "<M/D/YYYY> <description> <-$amount|$amount>" line (shared by
+    both Wealthfront cash-account layouts) and return (date, description,
+    signed_amount), or None if the line doesn't match or its parts don't
+    parse.
+    """
+    from datetime import date
+
+    m = _WF_CASH_ROW_RE.match(line)
+    if not m:
+        return None
+    date_str, description, amount_str = m.groups()
+    try:
+        mm, dd, yyyy = date_str.split('/')
+        txn_date = date(int(yyyy), int(mm), int(dd))
+    except ValueError:
+        return None
+    amount = _parse_pdf_number(amount_str)
+    if amount is None:
+        return None
+    return txn_date, description.strip(), amount
+
+
+def _parse_wf_cash_transactions(full_text: str) -> list[ParsedTransaction]:
+    transactions = []
+    kind = None
+    for raw_line in full_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Section headings carry a trailing footnote digit (e.g. "INTEREST4").
+        heading_key = re.sub(r'\d+$', '', line).strip().lower()
+        if heading_key in _WF_CASH_SECTION_KIND:
+            kind = _WF_CASH_SECTION_KIND[heading_key]
+            continue
+        if kind in (None, 'skip'):
+            continue
+        if line.lower().startswith('total') or line.lower().startswith('date '):
+            continue
+        matched = _match_dated_row(line)
+        if matched is None:
+            continue
+        txn_date, description, amount = matched
+        transactions.append(ParsedTransaction(date=txn_date, description=description, amount=abs(amount), direction=kind))
+    return transactions
+
+
 def _parse_wealthfront_cash_pdf(pdf, full_text: str) -> ParsedImport:
     result = ParsedImport(institution='wealthfront', source_format='pdf')
     result.as_of_date = _extract_statement_period(full_text)
@@ -672,6 +860,77 @@ def _parse_wealthfront_cash_pdf(pdf, full_text: str) -> ParsedImport:
         reported_total=balance,
         balance_only=True,
     )
+    try:
+        account.transactions = _parse_wf_cash_transactions(full_text)
+    except Exception as e:
+        logger.warning('Wealthfront Cash PDF: transaction parsing failed: %s', e)
+        result.warnings.append('Could not extract transaction detail from this statement — only the balance was imported.')
+    result.accounts.append(account)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Wealthfront's Green Dot Bank companion (debit-card) account
+#
+# NOTE: calibrated against a real statement with zero transactions in its
+# TRANSACTIONS section — institution sniffing, balance extraction, and the
+# SWEEP TRANSACTIONS exclusion are verified, but the per-row parsing regex
+# below is a best-effort guess (same "M/D/YYYY  description  $amount" shape
+# used elsewhere in the Wealthfront statement family) that should be
+# re-verified against a real statement that actually has transactions.
+# ---------------------------------------------------------------------------
+
+def _parse_greendot_transactions(full_text: str) -> list[ParsedTransaction]:
+    transactions = []
+    in_transactions = False
+    for raw_line in full_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        lowered = line.lower()
+        if lowered.startswith('sweep transactions'):
+            in_transactions = False  # internal transfer with the Wealthfront Cash Account — skip
+            continue
+        if lowered.startswith('transactions'):
+            in_transactions = True
+            continue
+        if not in_transactions or lowered in ('date description amount', 'no transactions'):
+            continue
+        matched = _match_dated_row(line)
+        if matched is None:
+            continue
+        txn_date, description, amount = matched
+        transactions.append(ParsedTransaction(
+            date=txn_date, description=description, amount=abs(amount),
+            direction='debit' if amount < 0 else 'credit',
+        ))
+    return transactions
+
+
+def _parse_wealthfront_greendot_pdf(pdf, full_text: str) -> ParsedImport:
+    result = ParsedImport(institution='wealthfront', source_format='pdf')
+    result.as_of_date = _extract_statement_period(full_text)
+
+    acct_m = _GREENDOT_ACCOUNT_NUMBER_RE.search(full_text)
+    last4 = re.sub(r'\D', '', acct_m.group(1))[-4:] if acct_m else None
+
+    bal_m = _GREENDOT_ENDING_BALANCE_RE.search(full_text)
+    balance = float(bal_m.group(1).replace(',', '')) if bal_m else 0.0
+
+    account = ParsedAccount(
+        key=_account_key('wealthfront', 'Wealthfront Cash Account (Green Dot)', last4),
+        institution='wealthfront', account_name='Wealthfront Cash Account (Green Dot)',
+        account_number_last4=last4,
+        cash_total=balance,
+        computed_total=balance,
+        reported_total=balance,
+        balance_only=True,
+    )
+    try:
+        account.transactions = _parse_greendot_transactions(full_text)
+    except Exception as e:
+        logger.warning('Wealthfront Green Dot PDF: transaction parsing failed: %s', e)
+        result.warnings.append('Could not extract transaction detail from this statement — only the balance was imported.')
     result.accounts.append(account)
     return result
 
@@ -679,6 +938,8 @@ def _parse_wealthfront_cash_pdf(pdf, full_text: str) -> ParsedImport:
 def _parse_wealthfront_pdf(pdf) -> ParsedImport:
     full_text = '\n'.join(page.extract_text() or '' for page in pdf.pages)
     lower = full_text.lower()
+    if 'green dot' in lower:
+        return _parse_wealthfront_greendot_pdf(pdf, full_text)
     if 'investment account' in lower or 'etfs' in lower or 'etf' in lower:
         return _parse_wealthfront_investment_pdf(pdf, full_text)
     return _parse_wealthfront_cash_pdf(pdf, full_text)

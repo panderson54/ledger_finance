@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app import create_app
 from app import db as _db
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, AssetAllocation, AppSetting, TickerClassification, DividendData, Holding, HoldingAllocation
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, AssetAllocation, AppSetting, TickerClassification, DividendData, Holding, HoldingAllocation, TransactionCategory, BankTransaction
 
 
 @pytest.fixture(scope="session")
@@ -41,6 +41,8 @@ def db(app):
         _db.session.query(AssetAllocation).delete()
         _db.session.query(HoldingAllocation).delete()
         _db.session.query(Holding).delete()
+        _db.session.query(BankTransaction).delete()
+        _db.session.query(TransactionCategory).delete()
         _db.session.query(Account).delete()
         _db.session.query(TickerClassification).delete()
         _db.session.query(DividendData).delete()
@@ -111,6 +113,15 @@ def make_holding(db_session, account_id: int, ticker: str = "VYM", shares: float
     db_session.add(h)
     db_session.commit()
     return h
+
+
+def make_transaction_category(db_session, title: str = "Utilities", kind: str = "expense",
+                               description: str = "") -> TransactionCategory:
+    """Create and persist a transaction category for testing."""
+    cat = TransactionCategory(title=title, kind=kind, description=description, is_active=True)
+    db_session.add(cat)
+    db_session.commit()
+    return cat
 
 
 # ---------------------------------------------------------------------------

@@ -168,6 +168,31 @@ PDF_COLUMN_BANDS: dict[str, dict[str, dict[str, tuple[float, float]]]] = {
     },
 }
 
+# Column bands for the checking/savings "Activity" transaction table
+# (date-anchored row reconstruction — see _reconstruct_transaction_rows in
+# pdf_parsing.py — rather than the quantity/symbol-collision engine used for
+# positions tables above).
+PDF_TRANSACTION_COLUMN_BANDS: dict[str, dict[str, tuple[float, float]]] = {
+    # Verified against a real Schwab Bank Investor Checking statement.
+    'schwab_bank': {
+        'date': (0, 55),
+        'description': (55, 400),
+        'debits': (400, 520),
+        'credits': (520, 620),
+        'balance': (620, 780),
+    },
+}
+
+# Heading that marks the start of the transaction table, and the marker that
+# ends it (a duplicate/unrelated table on the same or later page — parsing
+# stops here so it isn't swept in as more transaction rows).
+PDF_TRANSACTION_SECTION_HEADINGS: dict[str, str] = {
+    'schwab_bank': 'activity',
+}
+PDF_TRANSACTION_SECTION_STOP_MARKERS: dict[str, str] = {
+    'schwab_bank': 'checks paid',
+}
+
 # All recognized numeric bands (used to parse a word into the row dict).
 PDF_NUMERIC_FIELDS: tuple[str, ...] = (
     'quantity', 'price', 'value', 'value_begin', 'cost_basis', 'unrealized', 'eai',

@@ -15,7 +15,10 @@ from flask import current_app, redirect, render_template, request, jsonify, url_
 
 from app.routes import main_bp
 from app.routes.helpers import _bad_request, _get_app_setting, _get_anthropic_api_key, _parse_month_str
-from app.models import Account, Holding, HoldingAllocation, AccountSnapshot, ImportLog
+from app.models import (
+    Account, Holding, HoldingAllocation, AccountSnapshot, ImportLog,
+    TransactionCategory, BankTransaction, SpendingEntry,
+)
 from app import db
 from app.brokerage_import import build_preview, commit_import
 
@@ -38,6 +41,8 @@ def _cleanup_old_jobs() -> None:
 _MODELS = {
     'Account': Account, 'Holding': Holding, 'HoldingAllocation': HoldingAllocation,
     'AccountSnapshot': AccountSnapshot, 'ImportLog': ImportLog,
+    'TransactionCategory': TransactionCategory, 'BankTransaction': BankTransaction,
+    'SpendingEntry': SpendingEntry,
 }
 
 
@@ -66,6 +71,9 @@ def api_brokerage_import_preview():
     filename = file.filename
     job_id = str(uuid.uuid4())
 
+    expense_ai_enabled = _get_app_setting('claude_expense_categorization_enabled', 'false') == 'true'
+    expense_api_key = _get_anthropic_api_key() if expense_ai_enabled else ''
+
     with _preview_jobs_lock:
         _preview_jobs[job_id] = {'status': 'pending', 'created_at': time.monotonic()}
 
@@ -74,7 +82,7 @@ def api_brokerage_import_preview():
     def _run():
         with app.app_context():
             try:
-                result = build_preview(db, _MODELS, file_bytes, filename)
+                result = build_preview(db, _MODELS, file_bytes, filename, expense_ai_enabled, expense_api_key)
                 with _preview_jobs_lock:
                     _preview_jobs[job_id].update({'status': 'done', 'result': result})
             except Exception as e:
@@ -126,11 +134,22 @@ def api_brokerage_import_commit():
         return _bad_request('mapping must be a JSON object')
     mapping = {k: (int(v) if v not in (None, '') else None) for k, v in mapping_raw.items()}
 
+    try:
+        transaction_categories_raw = json.loads(request.form.get('transaction_categories') or '{}')
+        if not isinstance(transaction_categories_raw, dict):
+            raise ValueError
+    except (ValueError, TypeError):
+        return _bad_request('transaction_categories must be a JSON object')
+    transaction_categories = {
+        k: (int(v) if v not in (None, '') else None) for k, v in transaction_categories_raw.items()
+    }
+
     ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
     api_key = _get_anthropic_api_key() if ai_enabled else ''
 
     try:
-        result = commit_import(db, _MODELS, file.read(), file.filename, mapping, month_date, ai_enabled, api_key)
+        result = commit_import(db, _MODELS, file.read(), file.filename, mapping, month_date, ai_enabled, api_key,
+                                transaction_categories)
     except Exception as e:
         logger.warning('Brokerage import commit failed: filename=%s error=%s', file.filename, e)
         return jsonify({'success': False, 'error': f'Could not process this file: {e}', 'error_type': 'server'}), 500

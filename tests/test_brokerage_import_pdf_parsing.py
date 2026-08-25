@@ -322,6 +322,242 @@ def _wealthfront_cash_bytes():
     return buf.getvalue()
 
 
+def _build_pdf_small_font(pages: list[list[list[tuple]]]) -> bytes:
+    """Like _build_pdf but at 7pt (matches the real statement's tight column
+    spacing — reportlab's 12pt default would overlap adjacent columns placed
+    only ~40-50pt apart, as used for the Activity table below)."""
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    c.setFont('Helvetica', 7)
+    for page_lines in pages:
+        _draw_page(c, page_lines, line_height=10)
+        c.showPage()
+        c.setFont('Helvetica', 7)
+    c.save()
+    return buf.getvalue()
+
+
+def _schwab_bank_activity_bytes():
+    """
+    Activity table laid out with the real column x-positions verified in
+    PDF_TRANSACTION_COLUMN_BANDS['schwab_bank'] (date~40, description~82,
+    debits~448-462, credits~578-598, balance~702). All names/amounts here
+    are fabricated.
+    """
+    page1 = [
+        [(50, 'Schwab Bank Investor Checking')],
+        [(50, 'Statement Period July 1-31, 2026')],
+        [(50, 'Account Number 440054642648')],
+        [(50, 'Ending Balance $27,607.79')],
+    ]
+    page2 = [
+        [(40, 'Activity')],
+        [(40, 'Date')],
+        [(40, 'Posted'), (82, 'Description'), (462, 'Debits'), (588, 'Credits'), (714, 'Balance')],
+        [(40, '07/01'), (82, 'Beginning'), (129, 'Balance'), (702, '$23,970.37')],
+        [(40, '07/02'), (82, 'Electronic'), (128, 'Deposit'), (578, '$6,435.56'), (702, '$30,405.93')],
+        [(82, 'TEST'), (112, 'PAYROLL'), (161, '260702')],
+        [(40, '07/06'), (82, 'Electronic'), (128, 'Withdrawal'), (448, '$2,183.30'), (702, '$27,722.63')],
+        [(82, 'CHASE'), (119, 'CREDIT'), (159, 'CRD'), (183, 'EPAY')],
+        [(40, '07/16'), (82, 'Electronic'), (128, 'Withdrawal'), (456, '$500.00'), (702, '$24,591.67')],
+        [(82, 'WEALTHFRONT'), (160, 'EDI'), (180, 'PYMNTS')],
+        [(40, '07/16'), (82, 'Check'), (456, '$320.00'), (702, '$24,271.67')],
+        [(82, 'Check'), (113, 'Paid'), (136, '#187')],
+        [(40, '07/31'), (82, 'Interest'), (118, 'Paid'), (598, '$0.23'), (702, '$27,607.79')],
+        [(40, '07/31'), (82, 'Ending'), (118, 'Balance'), (702, '$27,607.79')],
+        [(40, 'Checks Paid')],
+        [(45, '187'), (160, '07/16/2026'), (356, '$320.00')],
+    ]
+    return _build_pdf_small_font([page1, page2])
+
+
+def _schwab_bank_activity_page_break_bytes():
+    """
+    Same shape as _schwab_bank_activity_bytes but with a row still open
+    right at a page break, followed by the repeated page letterhead
+    boilerplate (copyright line, account-holder name, "(continued)"
+    headings) before the next real row — regression fixture for the
+    boilerplate-skip guard in _reconstruct_transaction_rows.
+    """
+    page1 = [
+        [(50, 'Schwab Bank Investor Checking')],
+        [(50, 'Statement Period July 1-31, 2026')],
+        [(50, 'Account Number 440054642648')],
+        [(50, 'Ending Balance $27,607.79')],
+    ]
+    page2 = [
+        [(40, 'Activity')],
+        [(40, 'Date')],
+        [(40, 'Posted'), (82, 'Description'), (462, 'Debits'), (588, 'Credits'), (714, 'Balance')],
+        [(40, '07/06'), (82, 'Electronic'), (128, 'Withdrawal'), (448, '$2,468.46'), (702, '$25,254.17')],
+        [(82, 'AMEX'), (113, 'EPAYMENT'), (171, 'ACH'), (194, 'PMT')],
+        # Page footer, appearing right after the last row on this page —
+        # matches the real statement's layout (footer at the bottom of the
+        # PRECEDING page, before the next page's own letterhead starts).
+        [(703, 'Page'), (729, '2'), (738, 'of'), (750, '6')],
+        [(108, '©'), (115, '2026'), (133, 'Test'), (159, 'Bank,'), (186, 'All'), (233, 'rights'), (252, 'reserved.')],
+    ]
+    page3 = [
+        [(482, 'Account'), (517, 'Number'), (623, 'Statement'), (664, 'Period')],
+        [(202, 'TEST'), (244, 'HOLDER'), (290, 'NAME')],
+        [(40, 'Schwab'), (88, 'Bank'), (121, 'Investor')],
+        [(239, '(continued)')],
+        [(40, 'Activity'), (78, '(continued)')],
+        [(40, 'Date')],
+        [(40, 'Posted'), (82, 'Description'), (462, 'Debits'), (588, 'Credits'), (714, 'Balance')],
+        [(40, '07/13'), (82, 'Electronic'), (128, 'Withdrawal'), (456, '$162.50'), (702, '$25,091.67')],
+        [(82, 'TEST'), (143, 'VENDOR')],
+    ]
+    return _build_pdf_small_font([page1, page2, page3])
+
+
+def _wealthfront_cash_activity_bytes():
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    lines = [
+        'Wealthfront',
+        'Joint Cash Account',
+        'Account 8W159VG4',
+        'Statement Period July 1-31, 2026',
+        'Ending Balance $140,166.35',
+        'Deposits/Credits to Wealthfront Brokerage',
+        'Date Method Status Amount',
+        '7/2/2026 ACH Received $3,200.00',
+        'Total $3,200.00',
+        'Withdrawals/Debits from Wealthfront Brokerage',
+        'Date Method Status Initiator Amount',
+        '7/3/2026 ACH Direct Withdrawal Disbursed SEATTLEUTILTIES -$166.22',
+        'Total -$166.22',
+        'Transfer between Wealthfront and Program Banks',
+        'Date Method Amount',
+        '7/2/2026 Transfer to Program Banks -$3,200.00',
+        'Total -$3,200.00',
+        'INTEREST',
+        'Date Interest Period Amount',
+        '7/1/2026 June 2026 $10.00',
+        'Total $10.00',
+    ]
+    y = 750
+    for line in lines:
+        c.drawString(50, y, line)
+        y -= 14
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _greendot_activity_bytes():
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=letter)
+    lines = [
+        'Test Holder',
+        'STATEMENT PERIOD Jul. 14, 2026 to Aug. 13, 2026',
+        'ACCOUNT NUMBER 1115-4166-6112-63',
+        'ACCOUNT SUMMARY',
+        'Beginning Balance on Jul. 14, 2026 $1,000.00',
+        'Credits + $50.00',
+        'Debits - $20.00',
+        'Ending Balance on Aug. 13, 2026 $1,030.00',
+        'TRANSACTIONS',
+        'DATE DESCRIPTION AMOUNT',
+        '7/20/2026 Refund from Merchant $50.00',
+        '7/22/2026 Debit Card Purchase -$20.00',
+        'SWEEP TRANSACTIONS',
+        'DATE DESCRIPTION AMOUNT',
+        '7/20/2026 Sweep to Wealthfront Cash -$50.00',
+        '1. Statement for banking services provided by Green Dot Bank, Member FDIC.',
+    ]
+    y = 750
+    for line in lines:
+        c.drawString(50, y, line)
+        y -= 14
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+class TestParseSchwabBankTransactions:
+    def test_extracts_transactions_skips_balance_rows(self):
+        result = parse_positions_pdf(_schwab_bank_activity_bytes())
+        acct = result.accounts[0]
+        assert len(acct.transactions) == 5  # excludes Beginning/Ending Balance and Checks Paid summary
+
+    def test_transaction_directions_and_amounts(self):
+        result = parse_positions_pdf(_schwab_bank_activity_bytes())
+        by_desc = {t.description: t for t in result.accounts[0].transactions}
+        payroll = next(t for t in result.accounts[0].transactions if 'PAYROLL' in t.description)
+        assert payroll.direction == 'credit'
+        assert payroll.amount == pytest.approx(6435.56)
+        chase = next(t for t in result.accounts[0].transactions if 'CHASE' in t.description)
+        assert chase.direction == 'debit'
+        assert chase.amount == pytest.approx(2183.30)
+        interest = next(t for t in result.accounts[0].transactions if t.description == 'Interest Paid')
+        assert interest.direction == 'credit'
+        assert interest.amount == pytest.approx(0.23)
+
+    def test_transaction_dates_use_statement_year(self):
+        result = parse_positions_pdf(_schwab_bank_activity_bytes())
+        payroll = next(t for t in result.accounts[0].transactions if 'PAYROLL' in t.description)
+        assert payroll.date.isoformat() == '2026-07-02'
+
+    def test_checks_paid_summary_not_double_counted(self):
+        result = parse_positions_pdf(_schwab_bank_activity_bytes())
+        check_txns = [t for t in result.accounts[0].transactions if 'Check' in t.description]
+        assert len(check_txns) == 1  # only from Activity, not the Checks Paid summary table
+
+    def test_page_break_boilerplate_not_merged_into_description(self):
+        result = parse_positions_pdf(_schwab_bank_activity_page_break_bytes())
+        acct = result.accounts[0]
+        assert len(acct.transactions) == 2
+        amex = next(t for t in acct.transactions if 'AMEX' in t.description)
+        assert 'reserved' not in amex.description.lower()
+        assert 'TEST HOLDER NAME' not in amex.description
+        assert '(continued)' not in amex.description
+        vendor = next(t for t in acct.transactions if 'VENDOR' in t.description)
+        assert vendor.amount == pytest.approx(162.50)
+
+
+class TestParseWealthfrontCashTransactions:
+    def test_extracts_deposits_withdrawals_and_interest(self):
+        result = parse_positions_pdf(_wealthfront_cash_activity_bytes())
+        acct = result.accounts[0]
+        assert len(acct.transactions) == 3
+
+    def test_program_bank_transfer_section_excluded(self):
+        result = parse_positions_pdf(_wealthfront_cash_activity_bytes())
+        acct = result.accounts[0]
+        assert not any(t.amount == pytest.approx(3200.0) and t.direction == 'debit' for t in acct.transactions)
+
+    def test_directions_and_descriptions(self):
+        result = parse_positions_pdf(_wealthfront_cash_activity_bytes())
+        acct = result.accounts[0]
+        deposit = next(t for t in acct.transactions if t.direction == 'credit' and t.amount == pytest.approx(3200.0))
+        assert deposit.description == 'ACH Received'
+        withdrawal = next(t for t in acct.transactions if t.direction == 'debit')
+        assert 'SEATTLEUTILTIES' in withdrawal.description
+        assert withdrawal.amount == pytest.approx(166.22)
+        interest = next(t for t in acct.transactions if t.amount == pytest.approx(10.0))
+        assert interest.direction == 'credit'
+
+
+class TestParseWealthfrontGreenDot:
+    def test_sniffed_as_wealthfront_balance_only(self):
+        result = parse_positions_pdf(_greendot_activity_bytes())
+        assert result.institution == 'wealthfront'
+        acct = result.accounts[0]
+        assert acct.balance_only is True
+        assert acct.cash_total == pytest.approx(1030.0)
+
+    def test_extracts_transactions_excludes_sweep(self):
+        result = parse_positions_pdf(_greendot_activity_bytes())
+        acct = result.accounts[0]
+        assert len(acct.transactions) == 2
+        refund = next(t for t in acct.transactions if t.direction == 'credit')
+        assert refund.amount == pytest.approx(50.0)
+        purchase = next(t for t in acct.transactions if t.direction == 'debit')
+        assert purchase.amount == pytest.approx(20.0)
+
+
 class TestParseSchwaBank:
     def test_institution_and_balance_only(self):
         result = parse_positions_pdf(_schwab_bank_statement_bytes())

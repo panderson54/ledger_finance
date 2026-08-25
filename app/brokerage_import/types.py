@@ -18,6 +18,14 @@ class ParsedPosition:
 
 
 @dataclass
+class ParsedTransaction:
+    date: date
+    description: str   # raw statement text (payee/ACH descriptor/initiator)
+    amount: float       # always positive
+    direction: str      # 'debit' | 'credit'
+
+
+@dataclass
 class ParsedAccount:
     key: str                                    # f"{institution}:{account_name}:{account_number_last4 or ''}"
     institution: str
@@ -28,6 +36,7 @@ class ParsedAccount:
     reported_total: float | None = None          # institution-printed subtotal/ending value, if present
     computed_total: float = 0.0                  # sum(positions.value) + cash_total
     balance_only: bool = False                   # True for bank/cash statements — only snapshot, no holdings
+    transactions: list[ParsedTransaction] = field(default_factory=list)  # balance_only accounts only
 
 
 @dataclass
