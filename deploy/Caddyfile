@@ -1,0 +1,55 @@
+# Every app host goes through the same Google sign-in (oauth2-proxy) and gets its
+# own gateway secret. Add a new app by adding a site block with `import gated`.
+{
+	email {$ACME_EMAIL}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+# args[0] = upstream host:port, args[1] = that app's AUTH_PROXY_SECRET
+(gated) {
+	import security_headers
+
+	# Identity headers must only ever come from us, never from the client.
+	request_header -X-Forwarded-Email
+	request_header -X-Proxy-Secret
+
+	handle /oauth2/* {
+		reverse_proxy oauth2-proxy:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Uri {uri}
+		}
+	}
+
+	handle {
+		forward_auth oauth2-proxy:4180 {
+			uri /oauth2/auth
+			header_up X-Real-IP {remote_host}
+			copy_headers X-Auth-Request-Email>X-Forwarded-Email
+
+			@unauthenticated status 401
+			handle_response @unauthenticated {
+				redir * /oauth2/sign_in?rd={scheme}://{host}{uri}
+			}
+		}
+		reverse_proxy {args[0]} {
+			header_up X-Proxy-Secret {args[1]}
+		}
+	}
+}
+
+ledger.{$DOMAIN} {
+	import gated ledger:5001 {$LEDGER_PROXY_SECRET}
+}
+
+home.{$DOMAIN} {
+	import gated homebase:5100 {$HOMEBASE_PROXY_SECRET}
+}

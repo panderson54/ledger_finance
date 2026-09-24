@@ -9,6 +9,8 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 > **Security Notice**
 >
 > Ledger has **no built-in authentication**. It is designed for use on a trusted local network or behind a VPN. **Do not expose this application to the public internet** without first adding authentication (e.g. HTTP Basic Auth in Nginx, [Authelia](https://www.authelia.com/), or a self-hosted VPN like WireGuard/Tailscale). Exposing your personal financial data without a password is a significant security risk.
+>
+> To put Ledger on the internet safely, use the shared Google sign-in stack in [`deploy/`](deploy/README.md): Caddy + oauth2-proxy in front of Ledger (and Homebase), with a strict allowlist of pre-approved Google accounts and `AUTH_MODE=proxy` enforcing it inside the app too.
 
 ---
 

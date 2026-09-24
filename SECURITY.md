@@ -9,8 +9,10 @@ Ledger is designed as a **single-user, local-network application**. It has no bu
 - Running on a Raspberry Pi or home server accessible only from your local LAN
 - Running behind a VPN (WireGuard, Tailscale, etc.)
 
+- Behind the shared Google sign-in gateway in [`deploy/`](deploy/README.md) (`AUTH_MODE=proxy`): oauth2-proxy + Caddy enforce a strict allowlist of Google accounts, and the app itself rejects any request that lacks the gateway's secret header or whose email is not in `ALLOWED_EMAILS`
+
 **Not supported:**
-- Public internet exposure without an authentication layer in front
+- Public internet exposure without an authentication layer in front (with `AUTH_MODE` unset, the app has no auth of its own)
 - Multi-user deployments
 - Storing data for anyone other than yourself
 

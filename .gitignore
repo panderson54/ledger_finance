@@ -40,3 +40,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Shared deployment: real allowlist stays local
+deploy/oauth2-proxy/allowed_emails.txt

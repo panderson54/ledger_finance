@@ -73,7 +73,14 @@
                            href="{{ url_for('main.settings_page') }}">Settings</a>
                     </li>
                 </ul>
-                <div class="d-none d-lg-flex align-items-center ms-auto">
+                {% if g.user_email %}
+                <div class="d-flex align-items-center ms-lg-auto me-lg-2 small">
+                    <span class="navbar-text me-2">{{ g.user_email }}</span>
+                    {# oauth2-proxy's cookie is shared across the domain, so this signs out of every app #}
+                    <a class="btn btn-sm btn-outline-secondary" href="/oauth2/sign_out">Sign out</a>
+                </div>
+                {% endif %}
+                <div class="d-none d-lg-flex align-items-center {% if not g.user_email %}ms-auto{% endif %}">
                     <button id="theme-toggle" class="btn btn-sm btn-outline-secondary border-0 px-2"
                             title="Toggle dark mode" aria-label="Toggle dark mode">
                         <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16"

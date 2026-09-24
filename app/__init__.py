@@ -104,6 +104,9 @@ def create_app(config_name='development'):
             'Add SECRET_KEY to your .env file before deploying.'
         )
 
+    from app import proxy_auth
+    proxy_auth.init_app(app)
+
     # Initialize extensions with app
     db.init_app(app)
     migrate.init_app(app, db)

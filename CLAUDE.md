@@ -11,6 +11,7 @@ app/
   ai_utils.py           # Shared Claude API utilities (model constants, response parser)
   account_categories.py # Shared account category sets and allocation class list
   metrics_service.py    # Metrics recalculation and income contribution logic
+  proxy_auth.py         # AUTH_MODE=proxy: trust the Google-SSO gateway's identity header (deploy/)
   routes/               # Request handlers split by domain (sub-package)
     __init__.py         # Blueprint + sub-module imports
     helpers.py          # Shared route utilities
