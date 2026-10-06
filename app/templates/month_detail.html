@@ -1247,21 +1247,50 @@ document.addEventListener('keydown', function (e) {
 // #47 Inline balance editing  /  #48 Ghost text  /  #58 Delta highlighting
 // ---------------------------------------------------------------------------
 
+// #59 "Edited this session" indicator — blue row, only when the edit didn't
+// already trigger a delta warning (that takes visual priority).
+function markRowEditedThisSession(row) {
+    row.classList.add('table-primary');
+    if (row.querySelector('.edited-badge')) return;
+    const balanceCell = row.querySelector('.balance-cell');
+    if (!balanceCell) return;
+    const badge = document.createElement('span');
+    badge.className = 'edited-badge ms-2 badge text-bg-primary fw-normal';
+    badge.style.fontSize = '.7em';
+    badge.textContent = '✎ Edited';
+    badge.setAttribute('data-bs-toggle', 'tooltip');
+    badge.setAttribute('data-bs-placement', 'top');
+    badge.setAttribute('title', 'Balance updated during this session');
+    new bootstrap.Tooltip(badge, {trigger: 'hover'});
+    balanceCell.appendChild(badge);
+}
+
 function applyDeltaHighlight(row, newBalance, lastBalance) {
-    row.classList.remove('table-warning', 'table-danger');
+    row.classList.remove('table-warning', 'table-danger', 'table-primary');
     row.querySelector('.delta-dismiss')?.remove();
     const existingBadge = row.querySelector('.delta-badge');
     if (existingBadge) {
         bootstrap.Tooltip.getInstance(existingBadge)?.dispose();
         existingBadge.remove();
     }
-    if (!lastBalance || lastBalance <= 0) return;
+    const existingEditedBadge = row.querySelector('.edited-badge');
+    if (existingEditedBadge) {
+        bootstrap.Tooltip.getInstance(existingEditedBadge)?.dispose();
+        existingEditedBadge.remove();
+    }
 
-    const pct = Math.abs((newBalance - lastBalance) / lastBalance);
     let level = '';
-    if (pct > 0.50) level = 'danger';
-    else if (pct > 0.10) level = 'warning';
-    if (!level) return;
+    let pct = 0;
+    if (lastBalance && lastBalance > 0) {
+        pct = Math.abs((newBalance - lastBalance) / lastBalance);
+        if (pct > 0.50) level = 'danger';
+        else if (pct > 0.10) level = 'warning';
+    }
+
+    if (!level) {
+        markRowEditedThisSession(row);
+        return;
+    }
 
     row.classList.add('table-' + level);
     const dir = newBalance > lastBalance ? '↑' : '↓';
@@ -1290,6 +1319,7 @@ function applyDeltaHighlight(row, newBalance, lastBalance) {
         e.stopPropagation();
         row.classList.remove('table-warning', 'table-danger');
         btn.remove();
+        markRowEditedThisSession(row);
         const badge = row.querySelector('.delta-badge');
         if (badge) {
             bootstrap.Tooltip.getInstance(badge)?.dispose();
