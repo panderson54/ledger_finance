@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 # Simple error helpers
 # ---------------------------------------------------------------------------
 
+def safe_next_path(target):
+    """Return target if it's a same-site path, else None — keeps the post-login redirect on this site."""
+    if not target or not target.startswith('/') or target.startswith('//'):
+        return None
+    # Browsers treat a backslash as '/' and silently drop tabs/newlines, so
+    # either could turn this into a '//other-host' redirect.
+    if '\\' in target or any(ord(char) < 32 for char in target):
+        return None
+    return target
+
+
 def _bad_request(msg: str):
     return jsonify({'error': msg}), 400
 

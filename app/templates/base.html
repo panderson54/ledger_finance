@@ -29,6 +29,7 @@
     <nav class="navbar navbar-expand-lg">
         <div class="container-fluid">
             <a class="navbar-brand" href="{{ url_for('main.index') }}">Ledger</a>
+            {% if session.user_email %}
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
@@ -80,7 +81,12 @@
                              fill="currentColor" viewBox="0 0 16 16"></svg>
                     </button>
                 </div>
+                <form action="{{ url_for('main.logout') }}" method="post" class="d-flex align-items-center ms-lg-2">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="Signed in as {{ session.user_email }}">Sign out</button>
+                </form>
             </div>
+            {% endif %}
         </div>
     </nav>
 
