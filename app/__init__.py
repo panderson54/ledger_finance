@@ -161,6 +161,9 @@ def create_app(config_name='development'):
     access_control.register(app)
     csrf.init_app(app)
 
+    from app import cli
+    cli.register(app)
+
     # Register Jinja2 filters
     app.jinja_env.filters['datefmt'] = _datefmt
 
