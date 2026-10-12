@@ -193,6 +193,33 @@
             </div>
         </div>
 
+        <!-- Database backup & migration card -->
+        <div class="card mt-4">
+            <div class="card-header fw-semibold">Database Backup &amp; Migration</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Export every record (accounts, history, holdings, settings) to a JSON file,
+                    then import it on another Ledger instance to move all of your data.
+                    The file includes your Anthropic API key if one is set — store it securely.
+                </p>
+                <div id="db-transfer-alert" class="alert d-none mb-3" role="alert"></div>
+
+                <a class="btn btn-outline-primary mb-3" href="{{ url_for('main.export_database_file') }}">
+                    Export Database (JSON)
+                </a>
+
+                <label for="dbImportFile" class="form-label fw-medium d-block">Import Database</label>
+                <div class="input-group">
+                    <input type="file" class="form-control" id="dbImportFile" accept=".json,application/json">
+                    <button class="btn btn-danger" id="dbImportBtn" type="button">Import &amp; Replace</button>
+                </div>
+                <div class="form-text text-danger">
+                    Importing permanently replaces <strong>all</strong> data in this instance.
+                    Export a backup first if you might need it.
+                </div>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -258,6 +285,51 @@
 
 {% block extra_js %}
 <script>
+
+const dbImportBtn     = document.getElementById('dbImportBtn');
+const dbTransferAlert = document.getElementById('db-transfer-alert');
+
+function showDbTransferAlert(msg, type) {
+    dbTransferAlert.className = `alert alert-${type} mb-3`;
+    dbTransferAlert.textContent = msg;
+}
+
+dbImportBtn.addEventListener('click', async () => {
+    const file = document.getElementById('dbImportFile').files[0];
+    if (!file) {
+        showDbTransferAlert('Choose an export file first.', 'warning');
+        return;
+    }
+    if (!confirm(`Replace ALL data in this Ledger with the contents of "${file.name}"? This cannot be undone.`)) {
+        return;
+    }
+    const form = new FormData();
+    form.append('db_file', file);
+    form.append('confirm', 'replace');
+
+    dbImportBtn.disabled = true;
+    showDbTransferAlert('Importing…', 'info');
+    try {
+        const r = await fetch('/api/database/import', { method: 'POST', body: form });
+        if (r.status === 413) {
+            // Rejected by the reverse proxy before reaching Ledger (nginx defaults to 1 MB).
+            showDbTransferAlert('File is too large for the web server — raise client_max_body_size in nginx.', 'danger');
+            return;
+        }
+        const d = await r.json();
+        if (r.ok) {
+            const total = Object.values(d.counts).reduce((a, b) => a + b, 0);
+            showDbTransferAlert(`Imported ${total} records. Reloading…`, 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        } else {
+            showDbTransferAlert(d.error || 'Import failed.', 'danger');
+        }
+    } catch (e) {
+        showDbTransferAlert('Import failed: ' + e.message, 'danger');
+    } finally {
+        dbImportBtn.disabled = false;
+    }
+});
 const saveBtn  = document.getElementById('saveSettingsBtn');
 const alertEl  = document.getElementById('settings-alert');
 
