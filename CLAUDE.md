@@ -27,6 +27,7 @@ app/
   dividend_calc.py            # Pure income/DRIP math
   projections.py              # Pure FI/growth projection math
   models.py                   # SQLAlchemy ORM models
+  cli.py                      # `flask init-db`: create schema on an empty DB, else migrate
 ```
 
 ### SOLID & Modularity Rules

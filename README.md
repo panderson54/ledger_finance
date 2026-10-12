@@ -101,8 +101,12 @@ these values the app still starts in development, but nobody can sign in.
 ### Initialize the database
 
 ```bash
-flask db upgrade
+flask init-db
 ```
+
+`flask init-db` creates the schema on a new, empty database and applies any
+pending migrations to an existing one (the Docker image runs it on every start).
+Plain `flask db upgrade` only works on a database that already exists.
 
 ### Run the app
 
@@ -356,7 +360,7 @@ sudo chmod o+x /home/your-username
 ```bash
 cd /home/your-username/ledger
 source venv/bin/activate
-flask db upgrade
+flask init-db
 ```
 
 #### Step 7: Test Gunicorn Manually
