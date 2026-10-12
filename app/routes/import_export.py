@@ -1,20 +1,24 @@
 """
 Import and export routes:
-  /import, /export/csv, /api/import/preview
+  /import, /export/csv, /api/import/preview, /export/database, /api/database/import
 """
 import csv
 import io
+import json
 import logging
 from datetime import datetime, date
 
 from flask import render_template, jsonify, request, flash, redirect, url_for, make_response
+from sqlalchemy.exc import IntegrityError
 from werkzeug.utils import secure_filename
 
 from app.routes import main_bp
+from app.routes.helpers import _bad_request
 from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, ImportLog
 from app import db
 from app.import_processor import process_csv, preview_csv
 from app.metrics_service import recalculate_metrics as _recalculate_metrics
+from app.db_transfer_service import export_database, import_database
 
 logger = logging.getLogger(__name__)
 
@@ -290,3 +294,41 @@ def api_import_preview():
     file_stream = io.StringIO(file.read().decode('utf-8-sig'))
     results = preview_csv(file_stream, models)
     return jsonify(results)
+
+
+@main_bp.route('/export/database')
+def export_database_file():
+    """Download every table as JSON, for restoring into another Ledger instance."""
+    filename = f'ledger_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    response = make_response(json.dumps(export_database()))
+    response.headers['Content-Type'] = 'application/json'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    return response
+
+
+@main_bp.route('/api/database/import', methods=['POST'])
+def api_import_database():
+    """Replace ALL data with an uploaded JSON export."""
+    # Server-side guard as well as the UI prompt: this wipes the database.
+    if request.form.get('confirm') != 'replace':
+        return _bad_request('Import must be confirmed with confirm=replace.')
+    file = request.files.get('db_file')
+    if file is None or file.filename == '':
+        return _bad_request('No file provided.')
+
+    try:
+        payload = json.loads(file.read().decode('utf-8-sig'))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        logger.warning('Database import rejected: file=%s, not valid JSON: %s', file.filename, e)
+        return _bad_request('File is not valid JSON.')
+
+    try:
+        counts = import_database(payload)
+    except ValueError as e:
+        logger.warning('Database import rejected: file=%s, error=%s', file.filename, e)
+        return _bad_request(str(e))
+    except IntegrityError as e:
+        logger.warning('Database import failed integrity check: file=%s, error=%s', file.filename, e.orig)
+        return _bad_request(f'Import data is inconsistent; nothing was changed. ({e.orig})')
+
+    return jsonify({'success': True, 'counts': counts})
