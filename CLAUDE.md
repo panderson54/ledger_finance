@@ -11,12 +11,15 @@ app/
   ai_utils.py           # Shared Claude API utilities (model constants, response parser)
   account_categories.py # Shared account category sets and allocation class list
   metrics_service.py    # Metrics recalculation and income contribution logic
+  auth_service.py       # Google sign-in: allowlist matching (config-only, no DB/UI)
+  access_control.py     # Deny-by-default before_request guard: every endpoint not in
+                        #   PUBLIC_ENDPOINTS needs a signed-in, still-allowlisted user
   routes/               # Request handlers split by domain (sub-package)
     __init__.py         # Blueprint + sub-module imports
     helpers.py          # Shared route utilities
     dashboard.py, accounts.py, snapshots.py, spending.py,
     holdings.py, allocation.py, projections.py, income.py,
-    import_export.py, settings.py, visualizations.py
+    import_export.py, settings.py, visualizations.py, auth.py
   classification_service.py  # Ticker classification via Claude
   dividend_service.py         # Dividend data via Claude
   price_service.py            # yfinance price fetching
@@ -49,6 +52,12 @@ app/
 - Import API clients lazily or use `app.ai_utils.make_anthropic_client()`
 - Define model name constants, never hard-code model strings inline
 - Not swallow exceptions from callers — let them propagate or re-raise with context
+
+**Authentication**: `access_control.py` denies every request from an anonymous or
+no-longer-allowlisted client, so a new route is private by default. Never add to
+`PUBLIC_ENDPOINTS`/`PUBLIC_STATIC_FILES` unless the login page itself needs it.
+The allowlist (`LEDGER_ALLOWED_EMAILS`) is server config only; don't add a UI or
+table for it. Tests use the signed-in `client` fixture; `anon_client` is signed out.
 
 **New Route Domains**: Add routes to the appropriate sub-module in `app/routes/`. If none fits, create a new sub-module and register it in `app/routes/__init__.py`.
 

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Sign in — Ledger{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-5 col-lg-4">
+    <h1 class="h3 text-center mb-4">Ledger</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+    <a href="{{ url_for('main.google_login', next=next_path) }}" class="btn btn-primary w-100">Sign in with Google</a>
+  </div>
+</div>
+{% endblock %}

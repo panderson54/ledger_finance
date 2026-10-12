@@ -89,12 +89,14 @@ class TestSecretKeyStartup:
         saved = _pop('SECRET_KEY', 'FLASK_ENV')
         os.environ['SECRET_KEY'] = 'a-real-secret-key-for-testing-only'
         os.environ['FLASK_ENV'] = 'production'
+        os.environ['GOOGLE_REDIRECT_URI'] = 'https://ledger.example.com/auth/google/callback'
         try:
             from app import create_app
             app = create_app()
             assert app.config['SECRET_KEY'] == 'a-real-secret-key-for-testing-only'
         finally:
             _restore(saved)
+            os.environ['GOOGLE_REDIRECT_URI'] = ''
 
     def test_custom_key_is_used(self):
         saved = _pop('SECRET_KEY', 'FLASK_ENV')

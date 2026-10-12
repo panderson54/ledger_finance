@@ -2,39 +2,38 @@
 
 ## Intended Deployment Model
 
-Ledger is designed as a **single-user, local-network application**. It has no built-in authentication, user accounts, or session management. This is by design — the target use case is a personal device on a private home network or VPN.
+Ledger is a **single-user (or single-household) application** protected by
+Google sign-in. Every request is denied by default unless it comes from a
+signed-in Google account whose verified email is listed in the
+`LEDGER_ALLOWED_EMAILS` environment variable. There is no sign-up flow, user
+table, or UI for granting access — the server config is the only source of
+truth, and it is re-checked on every request.
 
-**Acceptable deployments:**
-- Running on `localhost` for personal use
-- Running on a Raspberry Pi or home server accessible only from your local LAN
-- Running behind a VPN (WireGuard, Tailscale, etc.)
+- Sign-in uses OpenID Connect (Authlib) with PKCE, `state` and `nonce`; the ID
+  token's signature, issuer, audience and expiry are validated
+- Anonymous `GET`s redirect to `/login`; other methods get `401`; unknown URLs
+  are denied the same way, so routes can't be probed
+- Only the login page, the OAuth endpoints and `static/style.css` are public
+- Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` in production, and
+  last 14 days
+- Production refuses to start without the OAuth client ID/secret, redirect URI
+  and a non-empty allowlist
 
-**Not supported:**
-- Public internet exposure without an authentication layer in front
-- Multi-user deployments
-- Storing data for anyone other than yourself
-
-If you expose this application publicly without adding authentication, anyone who reaches the URL can read and modify all of your financial data. Do not do this.
+**Not supported:** multi-tenant deployments — every allowed account sees the
+same data.
 
 ## Recommended Hardening
 
-If you need browser access from outside your home network, a VPN is strongly preferred over port-forwarding. If you do choose to expose the app, add HTTP Basic Auth in your Nginx config at a minimum:
-
-```bash
-sudo apt install -y apache2-utils
-sudo htpasswd -c /etc/nginx/.htpasswd your-username
-```
-
-Then add to your Nginx `location /` block:
-
-```nginx
-auth_basic "Ledger";
-auth_basic_user_file /etc/nginx/.htpasswd;
-```
+- Serve the app over HTTPS (required for Google sign-in on anything but
+  `localhost`)
+- For a home-hosted install, a VPN (WireGuard, Tailscale, etc.) remains a
+  useful extra layer
+- Remove an address from `LEDGER_ALLOWED_EMAILS` and restart to revoke access
+  immediately
 
 ## Sensitive Data
 
-- Your `.env` file contains `SECRET_KEY` — keep it out of version control (it is already in `.gitignore`)
+- Your `.env` file contains `SECRET_KEY` and `GOOGLE_CLIENT_SECRET` — keep it out of version control (it is already in `.gitignore`)
 - The SQLite database at `data/finance.db` contains all your financial records — back it up regularly and keep it off public storage
 - Log files in `logs/` may contain request details — treat them as sensitive
 

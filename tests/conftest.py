@@ -3,6 +3,10 @@ import os
 
 # Must be set before app is imported so create_app picks up the in-memory URI
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+os.environ["GOOGLE_CLIENT_ID"] = "test-client-id"
+os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
+os.environ["GOOGLE_REDIRECT_URI"] = ""
+os.environ["LEDGER_ALLOWED_EMAILS"] = "owner@example.com"
 
 import pytest
 from unittest.mock import MagicMock
@@ -49,8 +53,18 @@ def db(app):
 
 
 @pytest.fixture(scope="function")
-def client(app, db):
+def anon_client(app, db):
     return app.test_client()
+
+
+@pytest.fixture(scope="function")
+def client(anon_client):
+    # Sign-in itself goes through Google (covered in test_auth.py); every other
+    # test just needs the session it leaves behind.
+    with anon_client.session_transaction() as sess:
+        sess["user_email"] = "owner@example.com"
+        sess["user_name"] = "Owner"
+    return anon_client
 
 
 # ---------------------------------------------------------------------------

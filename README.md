@@ -84,13 +84,19 @@ Generate a secret key:
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (or copy `.env.example`):
 
 ```
 SECRET_KEY=<paste-generated-key-here>
 DATABASE_URL=sqlite:///data/finance.db
 FLASK_ENV=development
+GOOGLE_CLIENT_ID=<from Google Cloud Console>
+GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+LEDGER_ALLOWED_EMAILS=you@gmail.com
 ```
+
+See [Google Sign-In](#google-sign-in) for creating the OAuth client. Without
+these values the app still starts in development, but nobody can sign in.
 
 ### Initialize the database
 
@@ -172,17 +178,41 @@ Metrics are automatically recalculated whenever a snapshot or spending entry is 
 
 ## Deployment
 
+### Google Sign-In
+
+Every page requires signing in with a Google account listed in
+`LEDGER_ALLOWED_EMAILS`. That environment variable is the **only** place access
+is granted — there is no sign-up, user table, or admin UI. Matching is
+case-insensitive and ignores the dots Gmail ignores. The allowlist is re-checked
+on every request, so removing an address and restarting the app signs that
+person out immediately.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials),
+   configure the OAuth consent screen (External, Testing is fine; add your
+   accounts as test users), then **Create credentials → OAuth client ID →
+   Web application**.
+2. Under **Authorized redirect URIs** add your callback URL exactly, e.g.
+   `https://ledger.example.com/auth/google/callback` (and
+   `http://localhost:5001/auth/google/callback` for local development).
+3. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` (the
+   same callback URL) and `LEDGER_ALLOWED_EMAILS` (comma-separated) in `.env`,
+   then restart.
+
+In production (`FLASK_ENV=production`) the app refuses to start unless all four
+are set. Session cookies are `Secure`, so production must be served over HTTPS.
+
+> **Google only accepts `https://` redirect URIs on a real domain name** (plain
+> `http://` is allowed only for `localhost`). A Pi reached as `http://<pi-ip>`
+> cannot complete Google sign-in — put it behind a domain with HTTPS (e.g.
+> Nginx + Let's Encrypt, Cloudflare Tunnel, or Tailscale Funnel) first.
+
 ### Security Before You Deploy
 
-Ledger is a **local-network application**. Before exposing it on any network:
-
-- It has no login screen, session management, or user accounts
-- Anyone who can reach the app's IP and port can read and modify all your financial data
-- **Acceptable deployments:** home LAN accessible only from trusted devices, or behind a VPN (WireGuard, Tailscale, etc.)
-- **Unacceptable:** forwarding port 80 or 5001 to the public internet without authentication
-- If you want browser access from outside your home network, use a VPN rather than port-forwarding
-
-Optional hardening: add [HTTP Basic Auth to Nginx](https://docs.nginx.com/nginx/admin-guide/security-controls/configuring-http-basic-authentication/) as a lightweight password layer for LAN use.
+- Only accounts in `LEDGER_ALLOWED_EMAILS` can reach any page or API; everything
+  else redirects to the sign-in page (or gets `401` for non-GET requests)
+- Serve the app over HTTPS whenever it's reachable beyond `localhost`
+- A VPN (WireGuard, Tailscale, etc.) is still a good extra layer for a
+  home-hosted install
 
 ---
 
@@ -202,6 +232,10 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 SECRET_KEY=<paste-generated-key-here>
 DATABASE_URL=sqlite:////app/data/finance.db
 FLASK_ENV=production
+GOOGLE_CLIENT_ID=<from Google Cloud Console>
+GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+GOOGLE_REDIRECT_URI=http://localhost:5001/auth/google/callback
+LEDGER_ALLOWED_EMAILS=you@gmail.com
 ```
 
 **3. Start the container:**
@@ -291,7 +325,14 @@ Add the following, pasting your generated key:
 SECRET_KEY=<paste-generated-key-here>
 DATABASE_URL=sqlite:////home/your-username/ledger/data/finance.db
 FLASK_ENV=production
+GOOGLE_CLIENT_ID=<from Google Cloud Console>
+GOOGLE_CLIENT_SECRET=<from Google Cloud Console>
+GOOGLE_REDIRECT_URI=https://ledger.example.com/auth/google/callback
+LEDGER_ALLOWED_EMAILS=you@gmail.com
 ```
+
+See [Google Sign-In](#google-sign-in) — the redirect URI must be an `https://`
+domain name, so the Pi needs HTTPS in front of it for sign-in to work.
 
 Ensure the data and logs directories exist:
 
@@ -380,7 +421,7 @@ You should see `active (running)` in the output.
 
 #### Step 9: Configure Nginx
 
-> **Security reminder:** This Nginx config listens on port 80 with no authentication. It is safe on a private LAN or VPN. Do not forward this port to the public internet.
+> **HTTPS required for sign-in:** This config listens on plain HTTP (port 80). Google sign-in and the app's `Secure` session cookie need HTTPS, so add a certificate (e.g. `sudo certbot --nginx -d ledger.example.com`) or front it with a tunnel that terminates TLS.
 
 Create a new Nginx site config:
 

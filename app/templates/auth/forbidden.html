@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Access denied — Ledger{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5 text-center">
+    <h1 class="h3">Access denied</h1>
+    <p class="text-muted">This Google account isn't allowed to use Ledger.</p>
+    <a href="{{ url_for('main.google_login') }}" class="btn btn-outline-primary">Sign in with a different account</a>
+  </div>
+</div>
+{% endblock %}
