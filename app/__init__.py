@@ -79,11 +79,15 @@ def _datefmt(dt, fmt='%b %-d, %Y'):
 def _configure_auth(app, is_production):
     """Load Google OAuth + allowlist settings from the environment — the only place they can be set."""
     from app.auth_service import parse_allowed_emails
+    from app.mcp_token_service import parse_tokens
 
     app.config['GOOGLE_CLIENT_ID'] = os.getenv('GOOGLE_CLIENT_ID', '')
     app.config['GOOGLE_CLIENT_SECRET'] = os.getenv('GOOGLE_CLIENT_SECRET', '')
     app.config['GOOGLE_REDIRECT_URI'] = os.getenv('GOOGLE_REDIRECT_URI', '')
     app.config['ALLOWED_EMAILS'] = parse_allowed_emails(os.getenv('LEDGER_ALLOWED_EMAILS'))
+    # Optional: with none configured, every agent bearer token is rejected.
+    # A malformed entry raises at startup rather than silently locking an agent out.
+    app.config['MCP_TOKENS'] = parse_tokens(os.getenv('LEDGER_MCP_TOKENS'))
 
     required = {  # env var -> config key it populates
         'GOOGLE_CLIENT_ID': 'GOOGLE_CLIENT_ID',
