@@ -20,7 +20,8 @@ app/
     helpers.py          # Shared route utilities
     dashboard.py, accounts.py, snapshots.py, spending.py,
     holdings.py, allocation.py, projections.py, income.py,
-    import_export.py, settings.py, visualizations.py, auth.py
+    import_export.py, settings.py, visualizations.py, auth.py,
+    agent.py            # Bearer-token agent endpoints (/agent/whoami)
   classification_service.py  # Ticker classification via Claude
   dividend_service.py         # Dividend data via Claude
   price_service.py            # yfinance price fetching
@@ -61,10 +62,12 @@ no-longer-allowlisted client, so a new route is private by default. Never add to
 The allowlist (`LEDGER_ALLOWED_EMAILS`) is server config only; don't add a UI or
 table for it. Tests use the signed-in `client` fixture; `anon_client` is signed out.
 
-**Agent access**: AI agents authenticate with bearer tokens from `LEDGER_MCP_TOKENS`
-(checked via `app/mcp_token_service.find_client()`), never a Google session. Any tool
-served behind these tokens must be **read-only** — no tool may create, update or delete
-data. Tokens must never be accepted by `access_control.py`, so they can't unlock the website.
+**Agent access**: AI agents authenticate with bearer tokens from `LEDGER_MCP_TOKENS`,
+never a Google session. Mark an agent endpoint with `@agent_token_required` (from
+`access_control.py`); the guard then requires a valid token for it (and `g.agent_name`
+names the agent) instead of a session. Every agent endpoint must be **read-only** — none
+may create, update or delete data. Tokens are accepted only on marked endpoints, so they
+can't unlock the website.
 
 **New Route Domains**: Add routes to the appropriate sub-module in `app/routes/`. If none fits, create a new sub-module and register it in `app/routes/__init__.py`.
 

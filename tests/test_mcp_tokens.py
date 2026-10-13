@@ -91,3 +91,36 @@ def test_agent_token_does_not_unlock_website(app, anon_client, monkeypatch):
     headers = {'Authorization': f'Bearer {token}'}
     assert anon_client.get('/accounts', headers=headers).status_code == 302
     assert anon_client.post('/api/accounts/batch', json={}, headers=headers).status_code == 401
+
+
+class TestAgentAuthentication:
+    @pytest.fixture
+    def agent_token(self, app, monkeypatch):
+        token = mcp_token_service.generate_token()
+        monkeypatch.setitem(app.config, 'MCP_TOKENS', {'muse': mcp_token_service.hash_token(token)})
+        return token
+
+    def test_valid_token_identifies_agent(self, anon_client, agent_token):
+        resp = anon_client.get('/agent/whoami', headers={'Authorization': f'Bearer {agent_token}'})
+        assert resp.status_code == 200
+        assert resp.get_json() == {'agent': 'muse'}
+
+    @pytest.mark.parametrize('header', [None, 'Bearer ldmcp_wrong', 'Basic dXNlcjpwYXNz'])
+    def test_missing_or_bad_token_is_401_not_login_redirect(self, anon_client, agent_token, header):
+        headers = {'Authorization': header} if header else {}
+        resp = anon_client.get('/agent/whoami', headers=headers)
+        assert resp.status_code == 401
+        assert resp.get_json() == {'error': 'invalid_token'}
+        assert resp.headers['WWW-Authenticate'].startswith('Bearer')
+
+    def test_google_session_alone_is_not_enough(self, client, agent_token):
+        assert client.get('/agent/whoami').status_code == 401
+
+    def test_removing_token_from_config_revokes_it(self, app, anon_client, agent_token, monkeypatch):
+        monkeypatch.setitem(app.config, 'MCP_TOKENS', {})
+        resp = anon_client.get('/agent/whoami', headers={'Authorization': f'Bearer {agent_token}'})
+        assert resp.status_code == 401
+
+    def test_token_does_not_open_unknown_agent_urls(self, anon_client, agent_token):
+        resp = anon_client.get('/agent/no-such-tool', headers={'Authorization': f'Bearer {agent_token}'})
+        assert resp.status_code == 302

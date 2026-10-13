@@ -223,9 +223,18 @@ there's no table or UI for them, and only a hash of each token is stored:
    restart. A malformed entry stops startup rather than being ignored.
 3. To revoke, remove the entry and restart.
 
-Agent tokens grant **read-only** access to agent tools and never unlock the
-website, which still requires Google sign-in. (The agent tools themselves are
-not built yet; `app/mcp_token_service.find_client()` is the check they'll use.)
+Agents send the token as `Authorization: Bearer <token>`. To check one works:
+
+```bash
+curl -H "Authorization: Bearer ldmcp_..." https://ledger.andersonmckinley.com/agent/whoami
+# {"agent": "muse"}
+```
+
+A missing, wrong or revoked token gets `401 {"error": "invalid_token"}`. Each
+accepted request is logged with the agent's name; rejected ones log a warning.
+Agent tokens grant **read-only** access to agent endpoints and never unlock the
+website, which still requires Google sign-in — and a Google session alone can't
+call agent endpoints.
 
 ### Security Before You Deploy
 

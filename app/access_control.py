@@ -1,9 +1,11 @@
 """Deny-by-default request guard: every request needs a signed-in user whose email is
-still on the server-configured allowlist, except the few endpoints signing in needs."""
+still on the server-configured allowlist, except the few endpoints signing in needs.
+Endpoints marked @agent_token_required instead need a bearer token from LEDGER_MCP_TOKENS."""
 import logging
 
-from flask import abort, current_app, redirect, render_template, request, session, url_for
+from flask import abort, current_app, g, jsonify, redirect, render_template, request, session, url_for
 
+from app import csrf, mcp_token_service
 from app.auth_service import is_email_allowed
 
 logger = logging.getLogger(__name__)
@@ -28,11 +30,38 @@ def signed_in_email():
     return session.get(SESSION_EMAIL_KEY)
 
 
+def agent_token_required(view):
+    """Make an endpoint agent-only: it needs a bearer token, and a Google session alone won't do."""
+    view.agent_token_required = True
+    # Bearer tokens aren't sent automatically by browsers, so there's no CSRF to guard against.
+    return csrf.exempt(view)
+
+
+def _is_agent_endpoint():
+    view = current_app.view_functions.get(request.endpoint)
+    return getattr(view, 'agent_token_required', False)
+
+
+def _authenticate_agent():
+    token = mcp_token_service.bearer_token(request.headers.get('Authorization'))
+    client = mcp_token_service.find_client(token, current_app.config['MCP_TOKENS'])
+    if client is None:
+        logger.warning('Rejected agent request to %s: missing or invalid bearer token', request.path)
+        response = jsonify({'error': 'invalid_token'})
+        response.headers['WWW-Authenticate'] = 'Bearer realm="ledger-agent"'
+        return response, 401
+    g.agent_name = client
+    logger.info('Agent request from %s to %s', client, request.path)
+    return None
+
+
 def require_authorized_user():
     # Runs before routing errors are raised, so unknown URLs (endpoint None) are
     # denied too — an anonymous client can't probe which routes exist.
     if _is_public_request():
         return None
+    if _is_agent_endpoint():
+        return _authenticate_agent()
 
     email = signed_in_email()
     if not email:
