@@ -43,6 +43,10 @@ def _coerce_value(column, value):
     return value
 
 
+def export_filename() -> str:
+    return f'ledger_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+
+
 def export_database() -> dict:
     tables = {}
     for table in db.metadata.sorted_tables:
