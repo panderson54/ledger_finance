@@ -211,6 +211,22 @@ are set. Session cookies are `Secure`, so production must be served over HTTPS.
 > cannot complete Google sign-in — put it behind a domain with HTTPS (e.g.
 > Nginx + Let's Encrypt, Cloudflare Tunnel, or Tailscale Funnel) first.
 
+### Agent Access Tokens
+
+AI agents (MCP clients) get their own bearer tokens rather than a Google
+account. Like the email allowlist, tokens are configured only in server env —
+there's no table or UI for them, and only a hash of each token is stored:
+
+1. `flask mcp-token muse` prints a new token (give it to the agent; it isn't
+   stored anywhere) and a `muse:<sha256>` entry.
+2. Add the entry to `LEDGER_MCP_TOKENS` (comma-separate one per agent) and
+   restart. A malformed entry stops startup rather than being ignored.
+3. To revoke, remove the entry and restart.
+
+Agent tokens grant **read-only** access to agent tools and never unlock the
+website, which still requires Google sign-in. (The agent tools themselves are
+not built yet; `app/mcp_token_service.find_client()` is the check they'll use.)
+
 ### Security Before You Deploy
 
 - Only accounts in `LEDGER_ALLOWED_EMAILS` can reach any page or API; everything

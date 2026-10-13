@@ -14,6 +14,7 @@ app/
   auth_service.py       # Google sign-in: allowlist matching (config-only, no DB/UI)
   access_control.py     # Deny-by-default before_request guard: every endpoint not in
                         #   PUBLIC_ENDPOINTS needs a signed-in, still-allowlisted user
+  mcp_token_service.py  # Agent (MCP client) bearer tokens: config-only, hashed, read-only scope
   routes/               # Request handlers split by domain (sub-package)
     __init__.py         # Blueprint + sub-module imports
     helpers.py          # Shared route utilities
@@ -27,7 +28,7 @@ app/
   dividend_calc.py            # Pure income/DRIP math
   projections.py              # Pure FI/growth projection math
   models.py                   # SQLAlchemy ORM models
-  cli.py                      # `flask init-db`: create schema on an empty DB, else migrate
+  cli.py                      # `flask init-db`, `flask mcp-token <name>`
 ```
 
 ### SOLID & Modularity Rules
@@ -59,6 +60,11 @@ no-longer-allowlisted client, so a new route is private by default. Never add to
 `PUBLIC_ENDPOINTS`/`PUBLIC_STATIC_FILES` unless the login page itself needs it.
 The allowlist (`LEDGER_ALLOWED_EMAILS`) is server config only; don't add a UI or
 table for it. Tests use the signed-in `client` fixture; `anon_client` is signed out.
+
+**Agent access**: AI agents authenticate with bearer tokens from `LEDGER_MCP_TOKENS`
+(checked via `app/mcp_token_service.find_client()`), never a Google session. Any tool
+served behind these tokens must be **read-only** — no tool may create, update or delete
+data. Tokens must never be accepted by `access_control.py`, so they can't unlock the website.
 
 **New Route Domains**: Add routes to the appropriate sub-module in `app/routes/`. If none fits, create a new sub-module and register it in `app/routes/__init__.py`.
 

@@ -22,6 +22,11 @@ truth, and it is re-checked on every request.
 **Not supported:** multi-tenant deployments — every allowed account sees the
 same data.
 
+**Agent access** uses separate bearer tokens configured in `LEDGER_MCP_TOKENS`
+(`name:<sha256>` entries; only hashes are stored). They are scoped to read-only
+agent tools, never unlock the website, and are revoked by removing the entry and
+restarting. A malformed entry stops startup.
+
 ## Recommended Hardening
 
 - Serve the app over HTTPS (required for Google sign-in on anything but
@@ -33,7 +38,7 @@ same data.
 
 ## Sensitive Data
 
-- Your `.env` file contains `SECRET_KEY` and `GOOGLE_CLIENT_SECRET` — keep it out of version control (it is already in `.gitignore`)
+- Your `.env` file contains `SECRET_KEY`, `GOOGLE_CLIENT_SECRET` and agent token hashes — keep it out of version control (it is already in `.gitignore`)
 - The SQLite database at `data/finance.db` contains all your financial records — back it up regularly and keep it off public storage
 - Log files in `logs/` may contain request details — treat them as sensitive
 
