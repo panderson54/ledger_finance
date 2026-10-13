@@ -18,7 +18,7 @@ import sys
 # Allow running from the repo root without installing the package.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app import create_app  # noqa: E402
+from app import create_app, db  # noqa: E402
 from app.db_transfer_service import export_database, export_filename  # noqa: E402
 
 
@@ -40,9 +40,12 @@ def main(argv=None):
 
     with create_app().app_context():
         counts = write_export(path)
+        skipped = sorted(set(db.metadata.tables) - set(counts))
 
     for name, count in counts.items():
         print(f'  {name:<24} {count:>6}')
+    if skipped:
+        print(f'Not in this database (imported as empty): {", ".join(skipped)}')
     print(f'Exported {sum(counts.values())} rows to {os.path.abspath(path)}')
 
 
