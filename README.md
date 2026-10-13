@@ -22,7 +22,7 @@ A self-hosted personal finance dashboard for tracking net worth, savings rate, a
 - **Holdings tracking** — record individual stock/fund positions per account for allocation drill-down
 - **CSV import** for historical data with flexible month header parsing (`Jan '24`, `Jan 2024`, `2024-01`, etc.)
 - **CSV export** — download all monthly snapshots and spending data as a spreadsheet
-- **Full database export/import** — Settings → Database Backup & Migration downloads every table as JSON; importing that file on another instance (after `flask init-db`) replaces all of its data
+- **Full database export/import** — Settings → Database Backup & Migration downloads every table as JSON; importing that file on another instance (after `flask init-db`) replaces all of its data; `python scripts/export_db.py` writes the same file from the command line on the host, no sign-in needed
 - **S&P 500 benchmark comparison** — overlay index returns on your net worth chart to see how you track against the market
 - **Account history charts** — per-account balance history via Plotly with dark-mode support
 - **Recurring entries** — mark spending entries as recurring so they pre-populate in new months

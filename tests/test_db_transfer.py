@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from app import db as app_db
 from app.db_transfer_service import export_database, import_database
 from app.models import (
     Account, AccountSnapshot, AppSetting, HoldingAllocation, RecurringEntry, RentalProperty,
@@ -207,3 +208,43 @@ class TestDatabaseTransferRoutes:
     def test_requires_sign_in(self, anon_client, method, path):
         resp = getattr(anon_client, method)(path)
         assert resp.status_code in (302, 401)
+
+
+class TestExportScript:
+    @pytest.fixture
+    def source_app(self, tmp_path, monkeypatch):
+        """A separate on-disk database, like the Pi's, that the script's own create_app() connects to."""
+        from app import create_app
+        monkeypatch.setenv('DATABASE_URL', f'sqlite:///{tmp_path / "finance.db"}')
+        source_app = create_app()
+        with source_app.app_context():
+            app_db.create_all()
+        return source_app
+
+    def test_writes_owner_only_file_that_imports(self, source_app, tmp_path, client, capsys):
+        from scripts.export_db import main
+        with source_app.app_context():
+            _seed(app_db)
+        out = tmp_path / 'backup.json'
+
+        main(['-o', str(out)])
+
+        assert oct(out.stat().st_mode & 0o777) == '0o600'
+        assert 'Exported 9 rows' in capsys.readouterr().out
+        resp = _upload(client, out.read_bytes())
+        assert resp.status_code == 200
+        assert resp.get_json()['counts']['accounts'] == 3
+
+    def test_empty_database_exports_every_table(self, source_app, tmp_path):
+        from scripts.export_db import main
+        out = tmp_path / 'backup.json'
+        main(['-o', str(out)])
+        tables = json.loads(out.read_text())['tables']
+        assert set(tables) == set(app_db.metadata.tables)
+        assert all(rows == [] for rows in tables.values())
+
+    def test_unwritable_output_path_fails(self, source_app, tmp_path):
+        from scripts.export_db import main
+        with pytest.raises(FileNotFoundError):
+            main(['-o', str(tmp_path / 'missing_dir' / 'backup.json')])
+

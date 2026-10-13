@@ -18,7 +18,7 @@ from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric
 from app import db
 from app.import_processor import process_csv, preview_csv
 from app.metrics_service import recalculate_metrics as _recalculate_metrics
-from app.db_transfer_service import export_database, import_database
+from app.db_transfer_service import export_database, export_filename, import_database
 
 logger = logging.getLogger(__name__)
 
@@ -299,7 +299,7 @@ def api_import_preview():
 @main_bp.route('/export/database')
 def export_database_file():
     """Download every table as JSON, for restoring into another Ledger instance."""
-    filename = f'ledger_backup_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json'
+    filename = export_filename()
     response = make_response(json.dumps(export_database()))
     response.headers['Content-Type'] = 'application/json'
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
