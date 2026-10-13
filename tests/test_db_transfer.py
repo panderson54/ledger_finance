@@ -248,3 +248,25 @@ class TestExportScript:
         with pytest.raises(FileNotFoundError):
             main(['-o', str(tmp_path / 'missing_dir' / 'backup.json')])
 
+
+    def test_older_database_missing_table_and_column_still_exports(self, source_app, tmp_path, client, capsys):
+        """rental_properties (and some columns) were added without a migration, so older databases lack them."""
+        from sqlalchemy import text
+        from scripts.export_db import main
+        with source_app.app_context():
+            _seed(app_db)
+            app_db.session.execute(text('DROP TABLE rental_properties'))
+            app_db.session.execute(text('ALTER TABLE accounts DROP COLUMN apy'))
+            app_db.session.commit()
+        out = tmp_path / 'backup.json'
+
+        main(['-o', str(out)])
+
+        assert 'Not in this database (imported as empty): rental_properties' in capsys.readouterr().out
+        tables = json.loads(out.read_text())['tables']
+        assert 'rental_properties' not in tables
+        assert 'apy' not in tables['accounts'][0]
+        resp = _upload(client, out.read_bytes())
+        assert resp.status_code == 200
+        assert resp.get_json()['counts']['rental_properties'] == 0
+        assert Account.query.count() == 3

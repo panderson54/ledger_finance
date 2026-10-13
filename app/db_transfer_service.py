@@ -3,7 +3,7 @@ import logging
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import Boolean, Date, DateTime, Numeric, select, text
+from sqlalchemy import Boolean, Date, DateTime, Numeric, inspect, select, text
 
 from app import db
 
@@ -48,9 +48,22 @@ def export_filename() -> str:
 
 
 def export_database() -> dict:
+    # Read what the database actually has, not what the models declare: some tables and
+    # columns were added without a migration, so older databases lack them. The importer
+    # fills anything missing with empty tables and column defaults.
+    inspector = inspect(db.engine)
+    existing_tables = set(inspector.get_table_names())
     tables = {}
     for table in db.metadata.sorted_tables:
-        rows = db.session.execute(select(table).order_by(*table.primary_key.columns)).mappings()
+        if table.name not in existing_tables:
+            logger.warning('Database export: table %s not in database, skipped', table.name)
+            continue
+        existing_cols = {col['name'] for col in inspector.get_columns(table.name)}
+        columns = [col for col in table.columns if col.name in existing_cols]
+        if len(columns) < len(table.columns):
+            logger.warning('Database export: table %s missing columns %s, skipped',
+                           table.name, sorted(set(table.columns.keys()) - existing_cols))
+        rows = db.session.execute(select(*columns).order_by(*table.primary_key.columns)).mappings()
         tables[table.name] = [{k: _serialize_value(v) for k, v in row.items()} for row in rows]
     logger.info('Database export: tables=%d, rows=%d',
                 len(tables), sum(len(rows) for rows in tables.values()))
