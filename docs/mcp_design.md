@@ -1,6 +1,6 @@
 # Ledger MCP — Design
 
-**Status:** Proposed · **Date:** 2026-10-16
+**Status:** Accepted · **Date:** 2026-10-16 (decisions recorded under *Decisions*)
 
 ## Goal
 
@@ -101,7 +101,7 @@ Each token entry gets an optional scope, and the default is the least
 privileged:
 
 ```
-LEDGER_MCP_TOKENS=muse:<sha256>:summary,claude-desktop:<sha256>:detail
+LEDGER_MCP_TOKENS=claude:<sha256>:detail,muse:<sha256>:detail
 ```
 
 `name:hash` with no scope means `summary`, so existing entries keep working.
@@ -124,7 +124,7 @@ helpers, so a column added to a model can't leak out by accident.
 |---|---|
 | `AppSetting.anthropic_api_key`, and any setting not on the allowlist | Secret. Only `allocation_targets`, `save_rate_target`, `drip_tax_rate_pct` and `snapshot_timing` are readable. |
 | `Account.account_number`, `Account.notes` | Identifier / free text |
-| `Account.institution` | Identifying. Can be opted into later if it proves useful. |
+| `Account.institution` | Identifying, and not needed for analysis (decided: excluded at `detail` too) |
 | `SpendingEntry.notes`, `RecurringEntry.notes`, `RentalProperty.notes` | Free text that can hold anything, and also a prompt-injection channel |
 | `RentalProperty.address` | Location. Properties are returned as `property-1`, `property-2`, … |
 | `ImportLog` (file names, error text), raw `DividendData.source_notes` JSON | Not needed for analysis |
@@ -143,9 +143,11 @@ helpers, so a column added to a model can't leak out by accident.
   `app.extensions` instance (not a module global). A leaked token is then slow
   to scrape, and it still can't change anything.
 - **Bridge secrets:** the bridge reads `LEDGER_MCP_TOKEN` from its environment,
-  never from CLI arguments, which show up in `ps`. The docs warn that Claude
-  Desktop stores that env in plain JSON, so give the bridge a **summary**
-  token unless you need detail.
+  never from CLI arguments, which show up in `ps`. Claude Desktop stores
+  that env in plain JSON, and both planned tokens are `detail`, so the README
+  says to keep that config file user-only (`chmod 600`) and to rotate the
+  token (`flask mcp-token`, swap the entry, restart) if the machine is shared
+  or lost.
 - **Data leaves your server:** whatever a tool returns goes to the model
   provider as part of the conversation. Scopes and aliasing are how you limit
   that.
@@ -279,14 +281,17 @@ Following the CLAUDE.md coverage rules:
 | 4. Projections + prompts | Tools 9–11, MCP prompts | Results match the web projections page for the same inputs |
 | 5. Remote (optional) | Streamable-HTTP transport + OAuth 2.1 for claude.ai web/mobile | Separate design |
 
-## Open questions
+## Decisions
 
-1. **Which clients?** If you want claude.ai web or mobile, Phase 5 (OAuth)
-   matters. For Claude Desktop / Code only, the bridge is enough.
-2. **Default scope for your own token:** `summary` with aliased accounts, or
-   `detail`?
-3. **Institutions:** should `detail` include institution names, or stay
-   excluded?
-4. **Cache freshness:** with stale prices or dividend data, should the agent
-   only warn (recommended), or should a separate, explicitly non-agent action
-   remain the only way to refresh?
+| Question | Decision |
+|---|---|
+| Clients | **Claude** and **Muse AI**, one token each (`claude`, `muse`). Claude connects through the stdio bridge. Muse uses the bridge if it speaks MCP; otherwise it calls `/agent/v1/*` directly with the same token, and gets the same read-only guarantees. |
+| Scope | Both tokens are **`detail`**. `summary` stays the default for any entry without a scope, so a future agent starts least-privileged. |
+| Institutions | **Excluded at every scope**, `detail` included. |
+| Stale prices / dividend data | **Warn only.** Agent tools never refresh. Refreshing stays a website action. |
+
+## Open question
+
+- **Claude on web/mobile?** If "Claude" includes claude.ai in the browser or
+  the mobile app (not just Claude Desktop / Code), Phase 5 (remote transport
+  with OAuth) becomes required rather than optional.
