@@ -5,7 +5,7 @@ import logging
 
 from flask import abort, current_app, g, jsonify, redirect, render_template, request, session, url_for
 
-from app import csrf, mcp_token_service
+from app import csrf, mcp_token_service, read_only_guard
 from app.auth_service import is_email_allowed
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,7 @@ def _authenticate_agent():
         response.headers['WWW-Authenticate'] = 'Bearer realm="ledger-agent"'
         return response, 401
     g.agent_name = client
+    read_only_guard.enable()
     logger.info('Agent request from %s to %s', client, request.path)
     return None
 
@@ -82,3 +83,4 @@ def require_authorized_user():
 
 def register(app):
     app.before_request(require_authorized_user)
+    app.teardown_request(read_only_guard.reset)

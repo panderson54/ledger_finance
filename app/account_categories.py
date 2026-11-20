@@ -22,3 +22,14 @@ ALL_CATEGORIES: list[str] = [
 
 # Fixed asset classes used in allocation tracking
 ALLOCATION_CLASSES: list[str] = ['domestic', 'international', 'bonds', 'cash']
+
+# Display buckets that group account categories on charts and summaries
+BUCKET_MAP: dict[str, str] = {
+    'cash': 'Cash', 'checking': 'Cash', 'savings': 'Cash',
+    'retirement': 'Retirement', '401k': 'Retirement', 'ira': 'Retirement',
+    'roth_ira': 'Retirement', 'hsa': 'Retirement', '529': 'Retirement',
+    'brokerage': 'Investments', 'investment': 'Investments',
+    'real_estate': 'Real Estate', 'vehicle': 'Real Estate',
+    'mortgage': 'Liabilities', 'loan': 'Liabilities', 'credit_card': 'Liabilities',
+}
+BUCKET_ORDER: list[str] = ['Cash', 'Investments', 'Retirement', 'Real Estate', 'Liabilities']

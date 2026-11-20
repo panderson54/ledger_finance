@@ -3,25 +3,17 @@ Projections routes:
   /projections, /api/projections/*
 """
 import logging
-from datetime import date
-
-from dateutil.relativedelta import relativedelta
 from flask import render_template, jsonify, request
 
 from app.routes import main_bp
-from app.routes.helpers import _build_projections_context
-from app.models import Account, AccountSnapshot, CalculatedMetric
-from app import db
-from app import projections as proj
-from app.metrics_service import compute_income_contributions as _compute_income_contributions
+from app import projections_service
 
 logger = logging.getLogger(__name__)
 
 
 @main_bp.route('/projections')
 def projections():
-    ctx = _build_projections_context()
-    return render_template('projections.html', **ctx)
+    return render_template('projections.html', **projections_service.projection_context())
 
 
 @main_bp.route('/api/projections/growth', methods=['POST'])
@@ -49,101 +41,11 @@ def api_projections_growth():
     data = request.get_json(silent=True)
     if data is None:
         return jsonify({'error': 'Invalid JSON'}), 400
-
-    rates_pct: dict = data.get('rates', {})
-    horizon_years = int(data.get('horizon_years', 20))
-    horizon_years = max(1, min(30, horizon_years))
-    horizon_months = horizon_years * 12
-
-    mortgage_raw = data.get('mortgage')
-    mortgage_params = None
-    if mortgage_raw:
-        mortgage_params = {
-            'annual_rate': float(mortgage_raw.get('annual_rate', 6.5)) / 100,
-            'remaining_months': int(mortgage_raw.get('remaining_months', 360)),
-        }
-
-    # Build current balances
-    accounts = Account.query.filter_by(is_active=True).all()
-    current_by_category: dict[str, float] = {}
-    for account in accounts:
-        latest = (
-            AccountSnapshot.query
-            .filter_by(account_id=account.id)
-            .order_by(AccountSnapshot.snapshot_date.desc())
-            .first()
-        )
-        if latest:
-            bal = float(latest.balance)
-            current_by_category[account.category] = (
-                current_by_category.get(account.category, 0.0) + bal
-            )
-
-    # Convert pct rates to decimals
-    annual_rates = {cat: float(pct) / 100 for cat, pct in rates_pct.items()}
-
-    # Income → monthly contributions per category
-    income_raw = data.get('income')
-    monthly_contributions: dict[str, float] = {}
-    monthly_contribution_total = 0.0
-    if income_raw:
-        monthly_contributions, monthly_contribution_total = _compute_income_contributions(
-            income_raw, current_by_category
-        )
-
-    # Planned expenses → convert year to month offset from today
-    today = date.today().replace(day=1)
-    planned_expenses: list[dict] = []
-    for exp in (data.get('expenses') or []):
-        try:
-            exp_year = int(exp.get('year', 0))
-            if exp_year <= 0:
-                continue
-            month_offset = (exp_year - today.year) * 12 - today.month + 1
-            if 0 < month_offset <= horizon_months:
-                planned_expenses.append({
-                    'month_offset': month_offset,
-                    'amount': max(0.0, float(exp.get('amount', 0) or 0)),
-                    'name': str(exp.get('name', 'Expense'))[:50],
-                })
-        except (TypeError, ValueError):
-            continue
-
-    result = proj.project_growth(
-        current_by_category, annual_rates, horizon_months,
-        mortgage_params=mortgage_params,
-        monthly_contributions=monthly_contributions or None,
-        planned_expenses=planned_expenses or None,
-    )
-
-    proj_labels = proj.build_month_labels(today, horizon_months)
-
-    current_age = data.get('current_age')
-    if current_age is not None:
-        current_age = int(current_age)
-
-    mort_series = result['by_category'].get('mortgage')
-    callouts = proj.growth_callouts(
-        result['total'], today,
-        mortgage_series=mort_series,
-        current_age=current_age,
-    )
-    for key in ('yr5', 'yr10', 'yr20', 'yr30', 'retirement_nw'):
-        if callouts.get(key) is not None:
-            callouts[key] = round(callouts[key])
-
-    return jsonify({
-        'labels': proj_labels,
-        'total_projected': [round(v) for v in result['total']],
-        'by_category': {cat: [round(v) for v in vals]
-                        for cat, vals in result['by_category'].items()},
-        'callouts': callouts,
-        'monthly_contribution': round(monthly_contribution_total),
-        'planned_expenses': [
-            {'month_offset': e['month_offset'], 'name': e['name'], 'amount': e['amount']}
-            for e in planned_expenses
-        ],
-    })
+    return jsonify(projections_service.growth_projection(
+        data.get('rates', {}), data.get('horizon_years', 20),
+        mortgage=data.get('mortgage'), income=data.get('income'),
+        expenses=data.get('expenses'), current_age=data.get('current_age'),
+    ))
 
 
 @main_bp.route('/api/projections/fi', methods=['POST'])
@@ -170,65 +72,28 @@ def api_projections_fi():
         return jsonify({'error': 'scenarios list required'}), 400
 
     current_age = data.get('current_age')
-
-    # Latest investable NW
-    latest_metric = (
-        CalculatedMetric.query
-        .filter(CalculatedMetric.net_worth_non_re.isnot(None))
-        .order_by(CalculatedMetric.metric_date.desc())
-        .first()
-    )
-    current_nw = float(latest_metric.net_worth_non_re) if latest_metric else 0.0
-
-    today = date.today().replace(day=1)
-    projection_months = 50 * 12  # 50 years max display
-
-    scenario_results = []
-    for raw in scenarios_raw[:3]:
-        spending = float(raw.get('spending', 80_000))
-        swr = float(raw.get('swr', 4.0)) / 100
-        growth_rate = float(raw.get('growth_rate', 7.0)) / 100
-        monthly_savings = float(raw.get('monthly_savings', 0))
-        name = str(raw.get('name', 'Scenario'))[:50]
-
-        fi_target = proj.fi_number(spending, swr)
-        m = proj.months_to_fi(current_nw, fi_target, monthly_savings, growth_rate)
-        fi_date = None
-        years_to_fi = None
-        age_at_fi = None
-        if m is not None:
-            fi_date = (today + relativedelta(months=m)).strftime('%Y-%m')
-            years_to_fi = round(m / 12, 1)
-            if current_age:
-                age_at_fi = round(current_age + m / 12, 1)
-
-        series = proj.project_fi_series(current_nw, monthly_savings, growth_rate, projection_months)
-
-        scenario_results.append({
-            'name': name,
-            'fi_number': round(fi_target) if fi_target != float('inf') else None,
-            'fi_date': fi_date,
-            'years_to_fi': years_to_fi,
-            'age_at_fi': age_at_fi,
-            'projection': [round(v) for v in series],
-        })
+    current_nw = projections_service.latest_investable_net_worth()
+    scenario_results = [
+        projections_service.fi_scenario(
+            current_nw,
+            float(raw.get('spending', 80_000)), float(raw.get('swr', 4.0)),
+            float(raw.get('growth_rate', 7.0)), float(raw.get('monthly_savings', 0)),
+            name=raw.get('name', 'Scenario'), current_age=current_age,
+        )
+        for raw in scenarios_raw[:3]
+    ]
 
     # Sensitivity table uses the active scenario (sent as active_index, position in submitted list)
     active_idx = max(0, min(int(data.get('active_index', 0)), len(scenarios_raw) - 1))
     active_raw = scenarios_raw[active_idx]
-    sens_growth = float(active_raw.get('growth_rate', 7.0)) / 100
-    sens_savings = float(active_raw.get('monthly_savings', 0))
-    sens_spending = float(active_raw.get('spending', 80_000))
-    swr_range = [0.025, 0.030, 0.035, 0.040, 0.045, 0.050]
-    sensitivity = proj.fi_sensitivity_table_growth(
-        current_nw, sens_savings, sens_spending, sens_growth, swr_range
+    sensitivity = projections_service.fi_sensitivity(
+        current_nw, float(active_raw.get('monthly_savings', 0)),
+        float(active_raw.get('spending', 80_000)), float(active_raw.get('growth_rate', 7.0)),
     )
-
-    proj_labels = proj.build_month_labels(today, projection_months)
 
     return jsonify({
         'current_investable_nw': round(current_nw),
-        'labels': proj_labels,
+        'labels': projections_service.fi_labels(),
         'scenarios': scenario_results,
         'sensitivity': sensitivity,
     })

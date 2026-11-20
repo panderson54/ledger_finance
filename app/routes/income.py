@@ -15,9 +15,8 @@ from app.routes.helpers import (
     _get_anthropic_api_key,
     _rental_to_dict,
 )
-from app.models import Account, AccountSnapshot, Holding, DividendData, RentalProperty
-from app import db
-from app.account_categories import INVESTMENT_CATS
+from app.models import Account, AccountSnapshot, DividendData, RentalProperty
+from app import db, income_service
 from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
@@ -115,126 +114,9 @@ def api_passive_income():
     Response 200: {by_holding, by_account, total_annual_income, total_monthly_income,
                    est_after_tax_annual, tax_rate_used, missing_data}
     """
-    from app.dividend_service import get_or_fetch, is_dividend_stale
-    from app.dividend_calc import calculate_current_income, DEFAULT_TAX_RATE
-
-    account_id_filter = request.args.get('account_id', type=int)
-    tax_rate = float(_get_app_setting('drip_tax_rate_pct', str(DEFAULT_TAX_RATE * 100))) / 100
-
-    q = Holding.query.filter_by(is_active=True)
-    if account_id_filter:
-        q = q.filter_by(account_id=account_id_filter)
-    holdings = q.all()
-
-    if not holdings:
-        return jsonify({
-            'by_holding': [], 'by_account': [],
-            'total_annual_income': 0.0, 'total_monthly_income': 0.0,
-            'est_after_tax_annual': 0.0, 'tax_rate_used': tax_rate,
-            'missing_data': [],
-        })
-
     ai_enabled = _get_app_setting('claude_classification_enabled', 'false') == 'true'
-    api_key    = _get_anthropic_api_key() if ai_enabled else ''
-
-    # Build account lookup for tax_status
-    account_ids = {h.account_id for h in holdings}
-    accounts    = {a.id: a for a in Account.query.filter(Account.id.in_(account_ids)).all()}
-
-    missing_data = []
-    holdings_data = []
-
-    for h in holdings:
-        acct = accounts.get(h.account_id)
-
-        # Get or fetch dividend data
-        cached = DividendData.query.filter_by(ticker=h.ticker).first()
-        if ai_enabled and api_key and (not cached or is_dividend_stale(cached.last_fetched_at)):
-            try:
-                div_dict, _ = get_or_fetch(h.ticker, api_key)
-            except Exception as e:
-                logger.warning('Could not fetch dividend data for %s: %s', h.ticker, e)
-                div_dict = None
-        elif cached:
-            from app.dividend_service import _row_to_dict
-            div_dict = _row_to_dict(cached)
-        else:
-            div_dict = None
-
-        if div_dict is None or div_dict.get('fetch_error'):
-            missing_data.append(h.ticker)
-            annual_yield   = 0.0
-            is_payer       = False
-            frequency      = None
-            payer_type     = None
-            tax_treatment  = None
-        else:
-            annual_yield   = float(div_dict.get('annual_yield') or 0)
-            is_payer       = bool(div_dict.get('is_dividend_payer', True))
-            frequency      = div_dict.get('frequency')
-            payer_type     = div_dict.get('payer_type')
-            tax_treatment  = div_dict.get('tax_treatment')
-
-        holdings_data.append({
-            'ticker':             h.ticker,
-            'shares':             float(h.shares or 0),
-            'last_price':         float(h.last_price or 0),
-            'annual_yield':       annual_yield,
-            'is_dividend_payer':  is_payer,
-            'frequency':          frequency,
-            'payer_type':         payer_type,
-            'tax_treatment':      tax_treatment,
-            'account_id':         h.account_id,
-            'account_name':       acct.name if acct else 'Unknown',
-            'account_tax_status': acct.tax_status if acct else 'taxable',
-        })
-
-    result = calculate_current_income(holdings_data, tax_rate=tax_rate)
-    result['missing_data'] = missing_data
-
-    # Account-level dividend estimates (investment accounts with expected_dividend_yield set)
-    est_accounts = (
-        Account.query
-        .filter(Account.category.in_(INVESTMENT_CATS))
-        .filter(Account.is_active == True)
-        .filter(Account.expected_dividend_yield.isnot(None))
-        .filter(Account.expected_dividend_yield > 0)
-        .order_by(Account.name)
-        .all()
-    )
-    est_ids = [a.id for a in est_accounts]
-    est_latest_dates = dict(
-        db.session.query(AccountSnapshot.account_id, func.max(AccountSnapshot.snapshot_date))
-        .filter(AccountSnapshot.account_id.in_(est_ids))
-        .group_by(AccountSnapshot.account_id)
-        .all()
-    ) if est_ids else {}
-    est_balances = {}
-    for acct_id, max_date in est_latest_dates.items():
-        snap = AccountSnapshot.query.filter_by(account_id=acct_id, snapshot_date=max_date).first()
-        if snap:
-            est_balances[acct_id] = float(snap.balance)
-
-    account_estimates = []
-    for a in est_accounts:
-        balance = est_balances.get(a.id, 0.0)
-        edy     = float(a.expected_dividend_yield or 0)
-        annual  = balance * edy
-        account_estimates.append({
-            'account_id':       a.id,
-            'account_name':     a.name,
-            'institution':      a.institution,
-            'category':         a.category,
-            'balance':          balance,
-            'expected_yield':   edy,
-            'annual_income':    annual,
-            'monthly_income':   annual / 12,
-            'edit_url':         f'/accounts/{a.id}/edit',
-        })
-    result['account_estimates'] = account_estimates
-    result['account_estimates_annual'] = sum(e['annual_income'] for e in account_estimates)
-
-    return jsonify(result)
+    api_key = _get_anthropic_api_key() if ai_enabled else ''
+    return jsonify(income_service.passive_income(request.args.get('account_id', type=int), api_key))
 
 
 @main_bp.route('/api/passive-income/projection')
@@ -248,7 +130,6 @@ def api_passive_income_projection():
         horizon_years            int    e.g. 20 (max 30)
     Response 200: {labels, drip_on, drip_off, no_action, callouts, assumptions}
     """
-    from app.dividend_service import _row_to_dict
     from app.dividend_calc import simulate_drip
 
     def _param(name, setting_key, default):
@@ -273,19 +154,7 @@ def api_passive_income_projection():
     monthly_contrib    = _param('monthly_contribution',    'drip_monthly_contribution',   0.0)
     horizon_years      = int(min(request.args.get('horizon_years', 20, type=int), 30))
 
-    holdings = Holding.query.filter_by(is_active=True).all()
-    holdings_data = []
-    for h in holdings:
-        cached = DividendData.query.filter_by(ticker=h.ticker).first()
-        div_dict = _row_to_dict(cached) if cached else {}
-        holdings_data.append({
-            'ticker':            h.ticker,
-            'shares':            float(h.shares or 0),
-            'last_price':        float(h.last_price or 0),
-            'annual_yield':      float(div_dict.get('annual_yield') or 0),
-            'is_dividend_payer': bool(div_dict.get('is_dividend_payer', False)) if cached else False,
-            'frequency':         div_dict.get('frequency'),
-        })
+    holdings_data = income_service.drip_holdings_data()
 
     result = simulate_drip(
         holdings_data,

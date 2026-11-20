@@ -911,3 +911,26 @@ def test_api_projections_growth_with_young_age(client, db):
     assert r.status_code == 200
     body = r.get_json()
     assert "Age 65" in body["callouts"]["retirement_label"]
+
+
+class TestPagesBackedByServices:
+    """The allocation and projections pages render from portfolio_service/projections_service."""
+
+    def test_allocation_page_with_holdings(self, client, db):
+        from tests.conftest import make_holding, make_investment_account
+        from app.models import AccountSnapshot, HoldingAllocation
+        from datetime import date
+        acct = make_investment_account(db.session)
+        db.session.add(AccountSnapshot(account_id=acct.id, snapshot_date=date(2026, 1, 1), balance=5000))
+        holding = make_holding(db.session, acct.id)
+        db.session.add(HoldingAllocation(holding_id=holding.id, asset_class='domestic', percentage=100))
+        db.session.commit()
+        resp = client.get('/allocation')
+        assert resp.status_code == 200
+        assert b'VYM' in resp.data
+
+    def test_allocation_page_empty(self, client, db):
+        assert client.get('/allocation').status_code == 200
+
+    def test_projections_page(self, client, db, sample_snapshot):
+        assert client.get('/projections').status_code == 200

@@ -15,6 +15,14 @@ app/
   access_control.py     # Deny-by-default before_request guard: every endpoint not in
                         #   PUBLIC_ENDPOINTS needs a signed-in, still-allowlisted user
   mcp_token_service.py  # Agent (MCP client) bearer tokens: config-only, hashed, read-only scope
+  mcp_server.py         # Read-only MCP tools as plain functions + create_mcp_server(flask_app),
+                        #   which runs each call in its own read-only app context
+  mcp_http.py           # One ASGI app (asgi.py): /mcp behind a bearer token, else Flask
+  read_only_guard.py    # Rejects DB writes during agent requests and MCP tool calls
+  settings_service.py   # AppSetting reads (get_setting, allocation targets)
+  portfolio_service.py  # Read-only: latest balances, buckets, allocation overview
+  income_service.py     # Passive income; fetches dividend data only when given an API key
+  projections_service.py # Growth/FI projections built from stored history
   routes/               # Request handlers split by domain (sub-package)
     __init__.py         # Blueprint + sub-module imports
     helpers.py          # Shared route utilities
@@ -46,6 +54,8 @@ app/
 - Account category sets → `app/account_categories.py` (`INVESTMENT_CATS`, `CASH_CATS`, `LIABILITY_CATS`, `ALLOCATION_CLASSES`, `ALL_CATEGORIES`)
 - Metrics recalculation → `app/metrics_service.recalculate_metrics()`
 - Income contribution logic → `app/metrics_service.compute_income_contributions()`
+- Latest balance per account → `app/portfolio_service.latest_snapshots()`
+- Category display buckets → `BUCKET_MAP`/`BUCKET_ORDER` in `app/account_categories.py`
 
 **Dependency Direction**: Routes → Services → Models. Never import routes from services or models.
 
@@ -66,8 +76,11 @@ table for it. Tests use the signed-in `client` fixture; `anon_client` is signed 
 never a Google session. Mark an agent endpoint with `@agent_token_required` (from
 `access_control.py`); the guard then requires a valid token for it (and `g.agent_name`
 names the agent) instead of a session. Every agent endpoint must be **read-only** — none
-may create, update or delete data. Tokens are accepted only on marked endpoints, so they
-can't unlock the website.
+may create, update or delete data. Tokens are accepted only on marked endpoints and `/mcp`, so they
+can't unlock the website. Agent endpoints and MCP tools run under `read_only_guard`,
+which raises on any database write; MCP tools must also never call Claude or yfinance
+and must never return institutions, account numbers, notes, addresses or the API key.
+New MCP tools go in `TOOLS` in `app/mcp_server.py` and call services, like a route.
 
 **New Route Domains**: Add routes to the appropriate sub-module in `app/routes/`. If none fits, create a new sub-module and register it in `app/routes/__init__.py`.
 

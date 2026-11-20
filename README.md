@@ -149,7 +149,9 @@ ledger/
 ├── app/
 │   ├── __init__.py           # Flask app factory
 │   ├── models.py             # SQLAlchemy models
-│   ├── routes.py             # Page routes + REST API
+│   ├── routes/               # Page routes + REST API, split by domain
+│   ├── mcp_server.py         # Read-only MCP tools for AI agents
+│   ├── mcp_http.py           # One ASGI app: /mcp (bearer token) + the Flask site
 │   ├── import_processor.py   # CSV parsing and import logic
 │   ├── templates/            # Jinja2 HTML templates
 │   └── static/               # CSS and JS assets
@@ -160,7 +162,8 @@ ledger/
 ├── tests/                    # Test suite
 ├── .env                      # Environment variables (gitignored)
 ├── requirements.txt
-└── run.py                    # Entry point (port 5001)
+├── run.py                    # Development entry point (port 5001)
+└── asgi.py                   # Production entry point: site + /mcp (uvicorn)
 ```
 
 ---
@@ -211,30 +214,63 @@ are set. Session cookies are `Secure`, so production must be served over HTTPS.
 > cannot complete Google sign-in — put it behind a domain with HTTPS (e.g.
 > Nginx + Let's Encrypt, Cloudflare Tunnel, or Tailscale Funnel) first.
 
-### Agent Access Tokens
+### MCP Server (AI Agent Access)
 
-AI agents (MCP clients) get their own bearer tokens rather than a Google
-account. Like the email allowlist, tokens are configured only in server env —
-there's no table or UI for them, and only a hash of each token is stored:
+`app/mcp_server.py` defines a **read-only** [MCP](https://modelcontextprotocol.io)
+server so an AI agent can answer questions about your finances. It exposes:
+
+| Tool | What it returns |
+|---|---|
+| `get_financial_snapshot` | Net worth (total, excluding real estate, liquid), balances by bucket, YTD save rate vs target |
+| `get_net_worth_history` | Monthly net worth series and CAGR (optional `start_month`/`end_month`, `YYYY-MM`) |
+| `get_cash_flow` | Monthly income, expenses, save rate and entries by source; recurring templates |
+| `list_accounts` / `get_account_history` | Accounts with latest balances; one account's monthly balances |
+| `get_holdings` | Holdings with value, weight, asset-class split, concentration |
+| `get_asset_allocation` | Actual vs target allocation, drift, rebalance amounts, market-cap mix |
+| `get_passive_income` | Dividend income (cached data only), after-tax estimate, rental income |
+| `project_net_worth`, `project_financial_independence`, `project_dividend_income` | Growth, FI and DRIP projections (computed, never saved) |
+
+Every tool is read-only: each call runs under `read_only_guard`, which rejects any
+database write, and none refreshes prices or fetches dividend data (stale data comes
+back with a warning instead). Institutions, account numbers, notes, addresses and the
+API key are never returned.
+
+Run it locally over stdio (e.g. for Claude Desktop):
+
+```bash
+python -m app.mcp_server
+```
+
+or reach it remotely at `https://<your-domain>/mcp` (streamable HTTP, stateless, JSON
+responses). Every remote request needs `Authorization: Bearer <token>`; tokens unlock
+only the MCP tools and agent endpoints, never the website, which still requires Google
+sign-in.
+
+Tokens are configured only in server env, like the email allowlist — there's no table or
+UI for them, and only a hash of each token is stored:
 
 1. `flask mcp-token muse` prints a new token (give it to the agent; it isn't
    stored anywhere) and a `muse:<sha256>` entry.
 2. Add the entry to `LEDGER_MCP_TOKENS` (comma-separate one per agent) and
    restart. A malformed entry stops startup rather than being ignored.
-3. To revoke, remove the entry and restart.
+3. To revoke, remove the entry and restart. Each request is logged with the
+   agent's name (`MCP request from muse`); rejected tokens log a warning.
 
-Agents send the token as `Authorization: Bearer <token>`. To check one works:
+To check a token works:
 
 ```bash
 curl -H "Authorization: Bearer ldmcp_..." https://ledger.andersonmckinley.com/agent/whoami
 # {"agent": "muse"}
 ```
 
-A missing, wrong or revoked token gets `401 {"error": "invalid_token"}`. Each
-accepted request is logged with the agent's name; rejected ones log a warning.
-Agent tokens grant **read-only** access to agent endpoints and never unlock the
-website, which still requires Google sign-in — and a Google session alone can't
-call agent endpoints.
+A missing, wrong or revoked token gets `401 {"error": "invalid_token"}`.
+
+The remote endpoint needs the ASGI server: the Docker `entrypoint.sh` runs
+`uvicorn asgi:app`. Running `gunicorn run:app` (as in the Raspberry Pi steps below)
+still serves the site but not `/mcp` — swap the `ExecStart` command for
+`venv/bin/uvicorn asgi:app --uds /home/your-username/ledger/ledger.sock --workers 2`
+to serve both. Clients that only support OAuth-based MCP auth (not a static bearer
+token) can't connect.
 
 ### Security Before You Deploy
 
