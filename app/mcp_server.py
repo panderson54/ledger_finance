@@ -1,9 +1,11 @@
-"""Read-only MCP (Model Context Protocol) tools over Ledger's financial data, so an AI
-agent can answer questions about net worth, cash flow, allocation, income and FI
-projections. No tool creates, updates or deletes anything, refreshes prices or fetches
-dividend data: every call runs under read_only_guard, and stale data comes back with a
-warning instead. Fields the user would not want shared — institutions, account numbers,
-notes, addresses, API keys — are never returned.
+"""MCP (Model Context Protocol) tools over Ledger's financial data, so an AI agent can
+answer questions about net worth, cash flow, allocation, income and FI projections.
+
+The TOOLS never create, update or delete anything, refresh prices or fetch dividend data:
+every call runs under read_only_guard, and stale data comes back with a warning instead.
+The one write tool, record_monthly_update, is registered only for tokens configured with
+:write. Fields the user would not want shared — institutions, account numbers, notes,
+addresses, API keys — are never returned.
 
 Two ways to reach it, both via create_mcp_server():
 - locally over stdio: `python -m app.mcp_server`
@@ -11,13 +13,15 @@ Two ways to reach it, both via create_mcp_server():
 """
 import functools
 from datetime import datetime
+from typing import Literal, TypedDict
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from app import (
-    create_app, db, income_service, portfolio_service, projections_service, read_only_guard, settings_service,
+    create_app, db, income_service, monthly_update_service, portfolio_service, projections_service, read_only_guard,
+    settings_service,
 )
 from app.dividend_calc import simulate_drip
 from app.models import Account, AccountSnapshot, CalculatedMetric, Holding, RecurringEntry, RentalProperty, SpendingEntry
@@ -438,22 +442,65 @@ def project_dividend_income(
     return result
 
 
+def get_month_status(month: str) -> dict:
+    """The state of one month's update (YYYY-MM): each active account's balance this month
+    (null if not yet recorded) beside its previous recorded balance, accounts still missing a
+    balance, the month's income/expense totals by source, and recurring entries not yet applied.
+    Read this before record_monthly_update."""
+    return monthly_update_service.month_status(_parse_month(month, 'month'))
+
+
+class BalanceInput(TypedDict):
+    account_id: int
+    balance: float
+
+
+class CashFlowInput(TypedDict):
+    source: str
+    type: Literal['income', 'expense']
+    amount: float
+
+
+def record_monthly_update(
+    month: str,
+    balances: list[BalanceInput] | None = None,
+    cash_flow: list[CashFlowInput] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Record a month's update (YYYY-MM, not in the future): account balances (account_id from
+    list_accounts or get_month_status; liabilities as positive amounts owed) and income/expense
+    totals per source (e.g. "Employer" income, "Visa" expense — one total per source and type).
+    Starts the month if needed and adds any active recurring entries it lacks, then recalculates
+    net worth and save rate. Values already recorded are overwritten; the response lists every
+    item with its previous and new amount (status created/updated/unchanged). Everything is
+    validated before anything is written. Pass dry_run=true to preview without saving."""
+    return monthly_update_service.record_monthly_update(
+        _parse_month(month, 'month'),
+        [dict(b) for b in balances or []], [dict(e) for e in cash_flow or []], dry_run=dry_run,
+    )
+
+
 TOOLS = (
     get_financial_snapshot, get_net_worth_history, get_cash_flow, list_accounts, get_account_history,
     get_holdings, get_asset_allocation, get_passive_income,
-    project_net_worth, project_financial_independence, project_dividend_income,
+    project_net_worth, project_financial_independence, project_dividend_income, get_month_status,
 )
+WRITE_TOOLS = (record_monthly_update,)
 
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True)
+# Overwrites existing values (reported back), and repeating a call leaves the same result.
+OVERWRITES = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=True)
 
 
-def _in_app_context(flask_app, tool):
+def _in_app_context(flask_app, tool, read_only=True):
     # The SDK runs sync tools on worker threads, so each call opens its own app
     # context (and DB session) instead of relying on one pushed elsewhere.
     @functools.wraps(tool)
     def wrapper(*args, **kwargs):
-        with flask_app.app_context(), read_only_guard.read_only():
+        with flask_app.app_context():
+            if read_only:
+                read_only_guard.enable()
             try:
                 return tool(*args, **kwargs)
             except ValueError as e:
@@ -463,10 +510,13 @@ def _in_app_context(flask_app, tool):
     return wrapper
 
 
-def create_mcp_server(flask_app):
+def create_mcp_server(flask_app, allow_writes=False):
     server = MCPServer('ledger-finance')
     for tool in TOOLS:
         server.add_tool(_in_app_context(flask_app, tool), annotations=READ_ONLY)
+    if allow_writes:
+        for tool in WRITE_TOOLS:
+            server.add_tool(_in_app_context(flask_app, tool, read_only=False), annotations=OVERWRITES)
     return server
 
 

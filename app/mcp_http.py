@@ -1,15 +1,18 @@
 """Serves the site and the remote MCP endpoint from one ASGI app: /mcp goes to the
-read-only MCP tools (bearer token from LEDGER_MCP_TOKENS), everything else to Flask,
-whose own deny-by-default Google sign-in guard still applies.
+MCP tools (bearer token from LEDGER_MCP_TOKENS), everything else to Flask, whose own
+deny-by-default Google sign-in guard still applies. Tokens configured with :write reach
+a server that also has the monthly-update tool; every other token gets the read-only one.
 
 They share a process because the SQLite database lives on one disk — a separate
 MCP service couldn't reach it.
 """
+import contextlib
 import json
 import logging
 
 from a2wsgi import WSGIMiddleware
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
 
 from app import mcp_token_service
 from app.mcp_server import create_mcp_server
@@ -43,8 +46,8 @@ async def _unauthorized(send):
     await send({'type': 'http.response.body', 'body': body})
 
 
-def create_asgi_app(flask_app):
-    mcp_app = create_mcp_server(flask_app).streamable_http_app(
+def _streamable_http_app(server):
+    return server.streamable_http_app(
         streamable_http_path=MCP_PATH,
         # Stateless + plain JSON so any worker process can answer any request;
         # these tools are simple request/response calls with nothing to stream.
@@ -55,12 +58,26 @@ def create_asgi_app(flask_app):
         # localhost-only Host allowlist would reject the real domain.
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
+
+
+def create_asgi_app(flask_app):
+    servers = [create_mcp_server(flask_app), create_mcp_server(flask_app, allow_writes=True)]
+    read_app, write_app = (_streamable_http_app(server) for server in servers)
     site_app = WSGIMiddleware(flask_app)
+
+    @contextlib.asynccontextmanager
+    async def run_session_managers(_app):
+        async with contextlib.AsyncExitStack() as stack:
+            for server in servers:
+                await stack.enter_async_context(server.session_manager.run())
+            yield
+
+    # Each MCP app's own lifespan starts only its session manager; this starts both.
+    lifespan_app = Starlette(lifespan=run_session_managers)
 
     async def app(scope, receive, send):
         if scope['type'] == 'lifespan':
-            # Only the MCP side has startup work (its session manager); Flask has none.
-            return await mcp_app(scope, receive, send)
+            return await lifespan_app(scope, receive, send)
         if not _is_mcp_path(scope.get('path', '')):
             return await site_app(scope, receive, send)
 
@@ -69,7 +86,8 @@ def create_asgi_app(flask_app):
         if client is None:
             logger.warning('Rejected MCP request: missing or invalid bearer token')
             return await _unauthorized(send)
-        logger.info('MCP request from %s', client)
-        return await mcp_app(scope, receive, send)
+        can_write = client in flask_app.config['MCP_WRITE_CLIENTS']
+        logger.info('MCP request from %s (write=%s)', client, can_write)
+        return await (write_app if can_write else read_app)(scope, receive, send)
 
     return app

@@ -235,8 +235,10 @@ class TestProjections:
 
 
 def _call_every_tool(seeded):
-    calls = [(tool, {}) for tool in mcp_server.TOOLS if tool is not mcp_server.get_account_history]
+    needs_args = (mcp_server.get_account_history, mcp_server.get_month_status)
+    calls = [(tool, {}) for tool in mcp_server.TOOLS if tool not in needs_args]
     calls += [(mcp_server.get_account_history, {'account_id': seeded['brokerage'].id}),
+              (mcp_server.get_month_status, {'month': '2026-01'}),
               (mcp_server.get_holdings, {'account_id': seeded['brokerage'].id}),
               (mcp_server.get_passive_income, {'account_id': seeded['brokerage'].id}),
               (mcp_server.list_accounts, {'include_inactive': True})]

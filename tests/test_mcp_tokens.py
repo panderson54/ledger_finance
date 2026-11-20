@@ -15,7 +15,7 @@ class TestParseTokens:
     def test_empty_config_means_no_tokens(self, raw):
         assert mcp_token_service.parse_tokens(raw) == {}
 
-    @pytest.mark.parametrize('entry', ['muse', f'Bad Name:{VALID_HASH}', 'muse:not-a-sha256'])
+    @pytest.mark.parametrize('entry', ['muse', f'Bad Name:{VALID_HASH}', 'muse:not-a-sha256', f'muse:{VALID_HASH}:admin'])
     def test_malformed_entry_raises(self, entry):
         with pytest.raises(McpTokenConfigError, match='malformed'):
             mcp_token_service.parse_tokens(entry)
@@ -24,6 +24,11 @@ class TestParseTokens:
         with pytest.raises(McpTokenConfigError) as excinfo:
             mcp_token_service.parse_tokens('muse:ldmcp_secretvalue')
         assert 'secretvalue' not in str(excinfo.value)
+
+    def test_write_flag_marks_write_clients(self):
+        raw = f'muse:{VALID_HASH}:write, reader:{"b" * 64}'
+        assert mcp_token_service.parse_tokens(raw) == {'muse': VALID_HASH, 'reader': 'b' * 64}
+        assert mcp_token_service.parse_write_clients(raw) == {'muse'}
 
     def test_duplicate_name_raises(self):
         with pytest.raises(McpTokenConfigError, match='more than once'):
@@ -68,6 +73,11 @@ class TestMcpTokenCommand:
         entry = next(line for line in lines if line.startswith('muse:'))
         assert mcp_token_service.find_client(token, mcp_token_service.parse_tokens(entry)) == 'muse'
 
+    def test_write_flag_appended_to_entry(self, app):
+        result = app.test_cli_runner().invoke(args=['mcp-token', 'muse', '--write'])
+        entry = next(line.strip() for line in result.output.splitlines() if line.strip().startswith('muse:'))
+        assert mcp_token_service.parse_write_clients(entry) == {'muse'}
+
     def test_invalid_name_rejected(self, app):
         result = app.test_cli_runner().invoke(args=['mcp-token', 'not valid'])
         assert result.exit_code != 0
@@ -76,8 +86,10 @@ class TestMcpTokenCommand:
 
 class TestConfig:
     def test_tokens_loaded_from_env(self, monkeypatch):
-        monkeypatch.setenv('LEDGER_MCP_TOKENS', f'muse:{VALID_HASH}')
-        assert create_app().config['MCP_TOKENS'] == {'muse': VALID_HASH}
+        monkeypatch.setenv('LEDGER_MCP_TOKENS', f'muse:{VALID_HASH}:write')
+        config = create_app().config
+        assert config['MCP_TOKENS'] == {'muse': VALID_HASH}
+        assert config['MCP_WRITE_CLIENTS'] == {'muse'}
 
     def test_malformed_env_stops_startup(self, monkeypatch):
         monkeypatch.setenv('LEDGER_MCP_TOKENS', 'muse:oops')

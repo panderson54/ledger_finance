@@ -5,6 +5,7 @@ from app import mcp_server, mcp_token_service
 from app.mcp_http import create_asgi_app
 
 TOKEN = 'ldmcp_test-token'
+WRITE_TOKEN = 'ldmcp_write-token'
 MCP_HEADERS = {
     'Authorization': f'Bearer {TOKEN}',
     'Accept': 'application/json, text/event-stream',
@@ -18,11 +19,14 @@ def _rpc(method, params=None):
 
 @pytest.fixture
 def asgi_client(app, db):
-    original = app.config['MCP_TOKENS']
-    app.config['MCP_TOKENS'] = {'muse': mcp_token_service.hash_token(TOKEN)}
+    original = app.config['MCP_TOKENS'], app.config['MCP_WRITE_CLIENTS']
+    app.config['MCP_TOKENS'] = {
+        'muse': mcp_token_service.hash_token(TOKEN), 'writer': mcp_token_service.hash_token(WRITE_TOKEN),
+    }
+    app.config['MCP_WRITE_CLIENTS'] = frozenset({'writer'})
     with TestClient(create_asgi_app(app), follow_redirects=False) as client:
         yield client
-    app.config['MCP_TOKENS'] = original
+    app.config['MCP_TOKENS'], app.config['MCP_WRITE_CLIENTS'] = original
 
 
 class TestMcpAuth:
@@ -50,6 +54,24 @@ class TestMcpEndpoint:
         tools = resp.json()['result']['tools']
         assert {t['name'] for t in tools} == {t.__name__ for t in mcp_server.TOOLS}
         assert all(t['annotations']['readOnlyHint'] for t in tools)
+
+    def test_read_only_token_cannot_call_the_write_tool(self, asgi_client):
+        resp = asgi_client.post('/mcp', headers=MCP_HEADERS, json=_rpc(
+            'tools/call', {'name': 'record_monthly_update', 'arguments': {'month': '2026-01'}}))
+        result = resp.json()['result']
+        assert result['isError']
+        assert 'Unknown tool' in result['content'][0]['text']
+
+    def test_write_token_gets_and_can_call_the_write_tool(self, asgi_client):
+        headers = {**MCP_HEADERS, 'Authorization': f'Bearer {WRITE_TOKEN}'}
+        tools = asgi_client.post('/mcp', json=_rpc('tools/list'), headers=headers).json()['result']['tools']
+        write_tool = next(t for t in tools if t['name'] == 'record_monthly_update')
+        assert write_tool['annotations']['readOnlyHint'] is False
+        result = asgi_client.post('/mcp', headers=headers, json=_rpc(
+            'tools/call', {'name': 'record_monthly_update', 'arguments': {'month': '2026-01', 'dry_run': True}},
+        )).json()['result']
+        assert not result['isError']
+        assert '"dry_run": true' in result['content'][0]['text']
 
     def test_calls_a_tool(self, asgi_client):
         resp = asgi_client.post('/mcp', headers=MCP_HEADERS, json=_rpc(

@@ -12,8 +12,8 @@ from app.routes.helpers import (
     _build_month_list,
     _metric_to_dict,
 )
-from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric, RecurringEntry
-from app import db
+from app.models import Account, AccountSnapshot, SpendingEntry, CalculatedMetric
+from app import db, monthly_update_service
 from app.metrics_service import recalculate_metrics as _recalculate_metrics
 
 logger = logging.getLogger(__name__)
@@ -40,40 +40,8 @@ def api_month_init():
     if month_date is None:
         return jsonify({'error': 'Invalid month format. Use YYYY-MM.'}), 400
 
-    metric = CalculatedMetric.query.filter_by(metric_date=month_date).first()
-    if not metric:
-        metric = CalculatedMetric(metric_date=month_date)
-        db.session.add(metric)
-        db.session.commit()
-        logger.info('Month initialized: %s', data['month'])
-
-    # Auto-populate active recurring entries (idempotent: skip if already present)
-    templates = RecurringEntry.query.filter_by(is_active=True).order_by(
-        RecurringEntry.display_order, RecurringEntry.id
-    ).all()
-    applied = skipped = 0
-    for tmpl in templates:
-        existing = SpendingEntry.query.filter_by(
-            entry_date=month_date,
-            account_name=tmpl.account_name,
-            entry_type=tmpl.entry_type,
-        ).first()
-        if existing:
-            skipped += 1
-        else:
-            db.session.add(SpendingEntry(
-                entry_date=month_date,
-                account_name=tmpl.account_name,
-                amount=tmpl.amount,
-                entry_type=tmpl.entry_type,
-                notes=tmpl.notes or '',
-            ))
-            applied += 1
-    if applied:
-        db.session.commit()
-        _recalculate_metrics(month_date)
-        logger.info('Recurring entries applied for %s: applied=%d skipped=%d',
-                    data['month'], applied, skipped)
+    applied, skipped = monthly_update_service.start_month(month_date)
+    logger.info('Month initialized: %s recurring applied=%d skipped=%d', data['month'], applied, skipped)
 
     return jsonify({
         'month': month_date.strftime('%Y-%m'),
