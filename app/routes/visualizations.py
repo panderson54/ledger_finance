@@ -23,7 +23,9 @@ from app.routes.helpers import (
 )
 from app.models import Account, AccountSnapshot, CalculatedMetric, AppSetting
 from app import db
-from app.account_categories import INVESTMENT_CATS, CASH_CATS, ALLOCATION_CLASSES
+from app.account_categories import (
+    INVESTMENT_CATS, CASH_CATS, LIABILITY_CATS, ALLOCATION_CLASSES, BUCKET_MAP, BUCKET_ORDER,
+)
 from sqlalchemy import func
 
 logger = logging.getLogger(__name__)
@@ -118,14 +120,6 @@ def cashflow_history():
 @main_bp.route('/api/allocation-history')
 def allocation_history():
     """Per-month category-level balances for the allocation drift chart."""
-    BUCKET_MAP = {
-        'cash': 'Cash', 'checking': 'Cash', 'savings': 'Cash',
-        'retirement': 'Retirement', '401k': 'Retirement', 'ira': 'Retirement',
-        'roth_ira': 'Retirement', 'hsa': 'Retirement', '529': 'Retirement',
-        'brokerage': 'Investments', 'investment': 'Investments',
-        'real_estate': 'Real Estate', 'vehicle': 'Real Estate',
-        'mortgage': 'Liabilities', 'loan': 'Liabilities', 'credit_card': 'Liabilities',
-    }
     rows = (
         db.session.query(
             AccountSnapshot.snapshot_date,
@@ -162,7 +156,6 @@ def allocation_history():
 @main_bp.route('/api/asset-distribution')
 def asset_distribution():
     """API endpoint: current asset balances by category (assets only, excludes liabilities)."""
-    LIABILITY_CATS = {'mortgage', 'loan', 'credit_card'}
     latest_date = db.session.query(func.max(AccountSnapshot.snapshot_date)).scalar()
     if not latest_date:
         return jsonify({'categories': [], 'values': []})
@@ -177,22 +170,6 @@ def asset_distribution():
         .all()
     )
 
-    BUCKET_MAP = {
-        'cash': 'Cash',
-        'checking': 'Cash',
-        'savings': 'Cash',
-        'retirement': 'Retirement',
-        '401k': 'Retirement',
-        'ira': 'Retirement',
-        'roth_ira': 'Retirement',
-        'hsa': 'Retirement',
-        '529': 'Retirement',
-        'brokerage': 'Investments',
-        'investment': 'Investments',
-        'real_estate': 'Real Estate',
-        'vehicle': 'Real Estate',
-    }
-    BUCKET_ORDER = ['Cash', 'Investments', 'Retirement', 'Real Estate']
     bucket_totals: dict[str, float] = {}
     for cat, total in rows:
         if cat in LIABILITY_CATS or not total:
