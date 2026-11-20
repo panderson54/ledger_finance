@@ -14,10 +14,13 @@ app/
   auth_service.py       # Google sign-in: allowlist matching (config-only, no DB/UI)
   access_control.py     # Deny-by-default before_request guard: every endpoint not in
                         #   PUBLIC_ENDPOINTS needs a signed-in, still-allowlisted user
-  mcp_token_service.py  # Agent (MCP client) bearer tokens: config-only, hashed, read-only scope
-  mcp_server.py         # Read-only MCP tools as plain functions + create_mcp_server(flask_app),
-                        #   which runs each call in its own read-only app context
-  mcp_http.py           # One ASGI app (asgi.py): /mcp behind a bearer token, else Flask
+  mcp_token_service.py  # Agent (MCP client) bearer tokens: config-only, hashed; read-only
+                        #   unless the entry ends in :write
+  mcp_server.py         # MCP tools as plain functions + create_mcp_server(flask_app, allow_writes),
+                        #   which runs each call in its own (read-only unless a write tool) app context
+  mcp_http.py           # One ASGI app (asgi.py): /mcp behind a bearer token, else Flask;
+                        #   :write tokens reach the server that also has WRITE_TOOLS
+  monthly_update_service.py # Start a month, month status, record balances + cash flow
   read_only_guard.py    # Rejects DB writes during agent requests and MCP tool calls
   settings_service.py   # AppSetting reads (get_setting, allocation targets)
   portfolio_service.py  # Read-only: latest balances, buckets, allocation overview
@@ -77,10 +80,14 @@ never a Google session. Mark an agent endpoint with `@agent_token_required` (fro
 `access_control.py`); the guard then requires a valid token for it (and `g.agent_name`
 names the agent) instead of a session. Every agent endpoint must be **read-only** — none
 may create, update or delete data. Tokens are accepted only on marked endpoints and `/mcp`, so they
-can't unlock the website. Agent endpoints and MCP tools run under `read_only_guard`,
+can't unlock the website. Agent endpoints and MCP `TOOLS` run under `read_only_guard`,
 which raises on any database write; MCP tools must also never call Claude or yfinance
 and must never return institutions, account numbers, notes, addresses or the API key.
 New MCP tools go in `TOOLS` in `app/mcp_server.py` and call services, like a route.
+The only exception is `WRITE_TOOLS` (today just `record_monthly_update`), registered
+only on the server that `:write` tokens reach. A new write tool needs the user's
+explicit go-ahead, must validate all input before writing anything, and must report
+what it changed.
 
 **New Route Domains**: Add routes to the appropriate sub-module in `app/routes/`. If none fits, create a new sub-module and register it in `app/routes/__init__.py`.
 

@@ -30,7 +30,8 @@ def init_db_command():
 
 @click.command('mcp-token')
 @click.argument('name')
-def mcp_token_command(name):
+@click.option('--write', is_flag=True, help='Also allow the monthly-update MCP tool (read-only otherwise).')
+def mcp_token_command(name, write):
     """Generate an agent bearer token for NAME (e.g. muse) and its LEDGER_MCP_TOKENS entry."""
     name = name.strip().lower()
     if not mcp_token_service.is_valid_client_name(name):
@@ -40,7 +41,8 @@ def mcp_token_command(name):
     click.echo(f'  {token}')
     click.echo('')
     click.echo('Add this entry to LEDGER_MCP_TOKENS (comma-separate multiple agents), then restart:')
-    click.echo(f'  {name}:{mcp_token_service.hash_token(token)}')
+    suffix = f':{mcp_token_service.WRITE_FLAG}' if write else ''
+    click.echo(f'  {name}:{mcp_token_service.hash_token(token)}{suffix}')
 
 
 def register(app):

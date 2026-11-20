@@ -229,11 +229,21 @@ server so an AI agent can answer questions about your finances. It exposes:
 | `get_asset_allocation` | Actual vs target allocation, drift, rebalance amounts, market-cap mix |
 | `get_passive_income` | Dividend income (cached data only), after-tax estimate, rental income |
 | `project_net_worth`, `project_financial_independence`, `project_dividend_income` | Growth, FI and DRIP projections (computed, never saved) |
+| `get_month_status` | One month's update: each account's balance vs its previous one, missing balances, cash flow, pending recurring entries |
+| `record_monthly_update` | **Write tokens only.** Records a month's account balances and income/expense totals per source |
 
-Every tool is read-only: each call runs under `read_only_guard`, which rejects any
-database write, and none refreshes prices or fetches dividend data (stale data comes
-back with a warning instead). Institutions, account numbers, notes, addresses and the
-API key are never returned.
+Every tool except `record_monthly_update` is read-only: each call runs under
+`read_only_guard`, which rejects any database write, and none refreshes prices or
+fetches dividend data (stale data comes back with a warning instead). Institutions,
+account numbers, notes, addresses and the API key are never returned.
+
+`record_monthly_update` does what the Monthly Update page does: it starts the month
+(adding any active recurring entries it lacks), upserts the balances and one total per
+income/expense source, and recalculates net worth and save rate. Existing values are
+overwritten, and the response lists every item with its previous and new amount. Input
+is validated as a whole before anything is written, future months are rejected, and
+`dry_run: true` previews the changes without saving. Only tokens configured with
+`:write` see this tool; for every other token it doesn't exist.
 
 Run it locally over stdio (e.g. for Claude Desktop):
 
@@ -250,9 +260,11 @@ Tokens are configured only in server env, like the email allowlist — there's n
 UI for them, and only a hash of each token is stored:
 
 1. `flask mcp-token muse` prints a new token (give it to the agent; it isn't
-   stored anywhere) and a `muse:<sha256>` entry.
+   stored anywhere) and a `muse:<sha256>` entry. Add `--write` to let the agent
+   record monthly updates — its entry then ends in `:write`.
 2. Add the entry to `LEDGER_MCP_TOKENS` (comma-separate one per agent) and
-   restart. A malformed entry stops startup rather than being ignored.
+   restart. A malformed entry stops startup rather than being ignored. To make an
+   existing token read-only (or writable), remove (or add) `:write` and restart.
 3. To revoke, remove the entry and restart. Each request is logged with the
    agent's name (`MCP request from muse`); rejected tokens log a warning.
 
